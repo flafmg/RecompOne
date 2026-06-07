@@ -17,7 +17,9 @@ public static class LibCd
         Demute = 0x0C, 
         Setfilter = 0x0D,
         Setmode = 0x0E,
-        SeekL = 0x15, 
+        GetlocL = 0x10,
+        GetlocP = 0x11,
+        SeekL = 0x15,
         SeekP = 0x16,
         ReadS = 0x1B;
 
@@ -111,7 +113,7 @@ public static class LibCd
     {
         bool xaMode = (_mode & 0x40) != 0;
 
-        if (_readActive && xaMode && _cbData == 0)
+        if (_readActive && xaMode)
         {
             PumpXa();
             return;
@@ -278,6 +280,18 @@ public static class LibCd
                 _readActive = false;
                 LibCdStream.OnReadStream(PosToInt(_pos));
                 break;
+            case GetlocL:
+            case GetlocP:
+                _lastResult[0] = _pos[0];
+                _lastResult[1] = _pos[1];
+                _lastResult[2] = _pos[2];
+                _lastResult[3] = _mode;
+                _lastResult[4] = _filterFile;
+                _lastResult[5] = _filterChannel;
+                _lastResult[6] = 0;
+                _lastResult[7] = 0;
+                if (result != 0) WriteResult(m, result);
+                return 0;
             case Pause: case Stop: case Init:
                 LibCdStream.OnStopStream();
                 _readActive = false;

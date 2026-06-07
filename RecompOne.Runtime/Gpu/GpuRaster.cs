@@ -22,7 +22,7 @@ public sealed partial class Gpu
         bool raw = (cmd & (1u << 24)) != 0;
         int n = quad ? 4 : 3;
 
-        var v = new Vert[n];
+        Span<Vert> v = stackalloc Vert[4];
         int idx = 1;
         int clut = 0;
         int cr = (int)(cmd & 0xFF), cg = (int)((cmd >> 8) & 0xFF), cb = (int)((cmd >> 16) & 0xFF);
@@ -75,12 +75,19 @@ public sealed partial class Gpu
         int bias2 = IsTopLeft(a, b) ? 0 : -1;
         bool ditherTex = _dither && !raw;
 
-        for (int y = minY; y <= maxY; y++)
-            for (int x = minX; x <= maxX; x++)
+        int sx0 = b.Y - c.Y, sy0 = c.X - b.X;
+        int sx1 = c.Y - a.Y, sy1 = a.X - c.X;
+        int sx2 = a.Y - b.Y, sy2 = b.X - a.X;
+
+        long w0Row = (long)(c.X - b.X) * (minY - b.Y) - (long)(c.Y - b.Y) * (minX - b.X);
+        long w1Row = (long)(a.X - c.X) * (minY - c.Y) - (long)(a.Y - c.Y) * (minX - c.X);
+        long w2Row = (long)(b.X - a.X) * (minY - a.Y) - (long)(b.Y - a.Y) * (minX - a.X);
+
+        for (int y = minY; y <= maxY; y++, w0Row += sy0, w1Row += sy1, w2Row += sy2)
+        {
+            long w0 = w0Row, w1 = w1Row, w2 = w2Row;
+            for (int x = minX; x <= maxX; x++, w0 += sx0, w1 += sx1, w2 += sx2)
             {
-                long w0 = (long)(c.X - b.X) * (y - b.Y) - (long)(c.Y - b.Y) * (x - b.X);
-                long w1 = (long)(a.X - c.X) * (y - c.Y) - (long)(a.Y - c.Y) * (x - c.X);
-                long w2 = (long)(b.X - a.X) * (y - a.Y) - (long)(b.Y - a.Y) * (x - a.X);
                 if (w0 + bias0 < 0 || w1 + bias1 < 0 || w2 + bias2 < 0) continue;
 
                 int r, g, bl;
@@ -105,6 +112,7 @@ public sealed partial class Gpu
                 }
                 else Plot(x, y, r, g, bl, semi, _dither);
             }
+        }
     }
 
     static bool IsTopLeft(in Vert p0, in Vert p1)

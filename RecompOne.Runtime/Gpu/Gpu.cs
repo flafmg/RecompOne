@@ -165,6 +165,7 @@ public sealed partial class Gpu
         _dmaDir = 0;
         _texPageX = _texPageY = _texDepth = _blendMode = 0;
         _dither = _texDisable = false;
+        _texWinMaskX = _texWinMaskY = _texWinOffX = _texWinOffY = 0;
         _drawAreaLeft = _drawAreaTop = 0;
         _drawAreaRight = VramWidth - 1;
         _drawAreaBottom = VramHeight - 1;

@@ -12,7 +12,7 @@ internal static unsafe class Audio
     static ALCtx* _context;
 
     
-    const int NumBuffers = 24;
+    const int NumBuffers = 8;
     const int FramesPerBuffer = 735;
 
     static uint _source;

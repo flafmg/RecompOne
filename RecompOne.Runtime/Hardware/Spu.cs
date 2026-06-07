@@ -89,14 +89,15 @@ public sealed class Spu
         public ushort StartAddr;
         public ushort RepeatAddr;
         public ushort AdsrLo, AdsrHi;
-        public short  AdsrVol;
+        public short AdsrVol;
 
-        public uint      CurAddr;
-        public int       SampleIndex;
-        public uint      PitchCounter;
+        public uint CurAddr;
+        public int SampleIndex;
+        public uint PitchCounter;
         public AdsrPhase Phase = AdsrPhase.Off;
-        public int       AdsrCycleCount;
-        public bool      EndX;
+        public int AdsrCycleCount;
+        public bool EndX;
+        public bool IgnoreLoop;
 
         public int Old, Older;
 
@@ -114,7 +115,7 @@ public sealed class Spu
     ushort _pmon, _pmonHi;
     ushort _non, _nonHi;
     ushort _eon, _eonHi;
-    uint   _endx;
+    uint _endx;
     ushort _spucnt;
     ushort _transferAddr;
     ushort _transferCtrl = 4;
@@ -200,7 +201,7 @@ public sealed class Spu
                 case 0x8: v.AdsrLo = val; break;
                 case 0xA: v.AdsrHi = val; break;
                 case 0xC: v.AdsrVol = (short)val; break;
-                case 0xE: v.RepeatAddr = val; break;
+                case 0xE: v.RepeatAddr = val; v.IgnoreLoop = true; break;
             }
             return;
         }
@@ -243,12 +244,12 @@ public sealed class Spu
             v.AdsrVol = 0;
             v.AdsrCycleCount = 0;
             v.CurAddr = (uint)v.StartAddr << 3;
-            v.RepeatAddr = v.StartAddr;
+            v.IgnoreLoop = false;
             v.SampleIndex = 28;
             v.PitchCounter = 0;
             v.Old = v.Older = 0;
             v.EndX = false;
-            _endx           &= ~(1u << (b + i));
+            _endx &= ~(1u << (b + i));
         }
     }
 
@@ -296,10 +297,7 @@ public sealed class Spu
             v.PitchCounter += pitch;
 
             while (v.SampleIndex >= 28)
-            {
-                bool end = DecodeBlock(v);
-                if (end) break;
-            }
+                DecodeBlock(v);
 
             int sample;
             if (noise)
@@ -338,7 +336,7 @@ public sealed class Spu
         return ((short)sumL, (short)sumR);
     }
 
-    bool DecodeBlock(Voice v)
+    void DecodeBlock(Voice v)
     {
         uint addr = v.CurAddr & (uint)(RamSize - 1);
         byte hdr = Ram[addr];
@@ -360,10 +358,11 @@ public sealed class Spu
         }
 
         v.SampleIndex = 0;
-        v.CurAddr    += 16;
 
-        if ((flags & 4) != 0)
-            v.RepeatAddr = (ushort)(v.CurAddr >> 3);
+        if ((flags & 4) != 0 && !v.IgnoreLoop)
+            v.RepeatAddr = (ushort)(addr >> 3);
+
+        v.CurAddr += 16;
 
         if ((flags & 1) != 0)
         {
@@ -374,12 +373,9 @@ public sealed class Spu
             if ((flags & 2) == 0)
             {
                 v.AdsrVol = 0;
-                v.Phase = AdsrPhase.Off;
-                return true;
+                v.Phase = AdsrPhase.Release;
             }
         }
-
-        return false;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -433,7 +429,7 @@ public sealed class Spu
         int step = stepTable[stepIdx] << Math.Max(0, 11 - shift);
 
         if (exp && !decrease && v.AdsrVol > 0x6000) cycles *= 4;
-        if (exp &&  decrease) step = step * v.AdsrVol / 0x8000;
+        if (exp &&  decrease) { step = step * v.AdsrVol / 0x8000; if (step == 0) step = -1; }
 
         v.AdsrCycleCount++;
         if (v.AdsrCycleCount >= cycles)
