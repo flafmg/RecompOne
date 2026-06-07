@@ -56,6 +56,10 @@ public sealed partial class Gpu
 
     void RasterTriangle(Vert a, Vert b, Vert c, bool tex, bool gouraud, bool semi, bool raw, int clut)
     {
+        int spanX = Math.Max(a.X, Math.Max(b.X, c.X)) - Math.Min(a.X, Math.Min(b.X, c.X));
+        int spanY = Math.Max(a.Y, Math.Max(b.Y, c.Y)) - Math.Min(a.Y, Math.Min(b.Y, c.Y));
+        if (spanX > 1023 || spanY > 511) return;
+
         long area = (long)(b.X - a.X) * (c.Y - a.Y) - (long)(b.Y - a.Y) * (c.X - a.X);
         if (area == 0) return;
         if (area < 0) { (b, c) = (c, b); area = -area; }
@@ -94,9 +98,10 @@ public sealed partial class Gpu
                     int tv = (int)((w0 * a.V + w1 * b.V + w2 * c.V) / area);
                     ushort texel = FetchTexel(u, tv, clut);
                     if (texel == 0) continue;
+                    bool stp = (texel & 0x8000) != 0;
                     int tr = (texel & 0x1F) << 3, tg = ((texel >> 5) & 0x1F) << 3, tb = ((texel >> 10) & 0x1F) << 3;
                     if (!raw) { tr = tr * r >> 7; tg = tg * g >> 7; tb = tb * bl >> 7; }
-                    Plot(x, y, tr, tg, tb, semi && (texel & 0x8000) != 0, ditherTex);
+                    Plot(x, y, tr, tg, tb, semi && stp, ditherTex, stp);
                 }
                 else Plot(x, y, r, g, bl, semi, _dither);
             }
@@ -143,9 +148,10 @@ public sealed partial class Gpu
                 {
                     ushort texel = FetchTexel((u0 + dx) & 0xFF, (v0 + dy) & 0xFF, clut);
                     if (texel == 0) continue;
+                    bool stp = (texel & 0x8000) != 0;
                     int tr = (texel & 0x1F) << 3, tg = ((texel >> 5) & 0x1F) << 3, tb = ((texel >> 10) & 0x1F) << 3;
                     if (!raw) { tr = tr * cr >> 7; tg = tg * cg >> 7; tb = tb * cb >> 7; }
-                    Plot(px, py, tr, tg, tb, semi && (texel & 0x8000) != 0, false);
+                    Plot(px, py, tr, tg, tb, semi && stp, false, stp);
                 }
                 else Plot(px, py, cr, cg, cb, semi, false);
             }
@@ -237,7 +243,7 @@ public sealed partial class Gpu
         return Vram[(clutY & (VramHeight - 1)) * VramWidth + ((clutX + index) & (VramWidth - 1))];
     }
 
-    void Plot(int x, int y, int r, int g, int b, bool semi, bool dither)
+    void Plot(int x, int y, int r, int g, int b, bool semi, bool dither, bool maskBit = false)
     {
         if (x < _drawAreaLeft || x > _drawAreaRight || y < _drawAreaTop || y > _drawAreaBottom) return;
         if (x < 0 || x >= VramWidth || y < 0 || y >= VramHeight) return;
@@ -267,7 +273,7 @@ public sealed partial class Gpu
         }
 
         ushort outp = (ushort)(fr | (fg << 5) | (fb << 10));
-        if (_setMask) outp |= 0x8000;
+        if (_setMask || maskBit) outp |= 0x8000;
         Vram[idx] = outp;
     }
 

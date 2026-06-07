@@ -127,9 +127,12 @@ public sealed partial class Gpu
 
     void StoreImageHalfword(ushort value)
     {
+        if (!_loadImage) return;
         int x = (_loadX + (_loadPx % _loadW)) & (VramWidth - 1);
         int y = (_loadY + (_loadPx / _loadW)) & (VramHeight - 1);
-        Vram[y * VramWidth + x] = value;
+        int idx = y * VramWidth + x;
+        if (!(_checkMask && (Vram[idx] & 0x8000) != 0))
+            Vram[idx] = _setMask ? (ushort)(value | 0x8000) : value;
         if (++_loadPx >= _loadW * _loadH) _loadImage = false;
     }
 

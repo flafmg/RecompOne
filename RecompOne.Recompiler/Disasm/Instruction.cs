@@ -25,6 +25,8 @@ public sealed class MipsInstruction : IDisposable
     public RabbitizerInstrId UniqueId => _rab.UniqueId;
     public RabbitizerInstrCategory Category => _rab.Category;
     public bool IsNop => _rab.IsNop;
+    public bool IsValid => _rab.IsValid;
+    public bool IsImplemented => _rab.IsImplemented;
     public bool IsReturn => _rab.IsReturn;
     public bool IsFunctionCall => _rab.IsFunctionCall;
     public bool IsUnconditionalBranch=> _rab.IsUnconditionalBranch;
@@ -32,6 +34,8 @@ public sealed class MipsInstruction : IDisposable
     public bool HasDelaySlot => _rab.HasDelaySlot;
 
     public bool IsJump => UniqueId is RabbitizerInstrId.cpu_j   or RabbitizerInstrId.r3000gte_INVALID;
+    public bool IsRegisterJump => UniqueId is RabbitizerInstrId.cpu_jr or RabbitizerInstrId.cpu_jalr;
+    public bool IsJrRegister => UniqueId == RabbitizerInstrId.cpu_jr;
     public bool IsBranch => !IsJump && HasDelaySlot && !IsFunctionCall;
     public bool IsLoad => UniqueId is RabbitizerInstrId.cpu_lw  or RabbitizerInstrId.cpu_lh or RabbitizerInstrId.cpu_lhu or RabbitizerInstrId.cpu_lb or RabbitizerInstrId.cpu_lbu or RabbitizerInstrId.cpu_lwl or RabbitizerInstrId.cpu_lwr;
 

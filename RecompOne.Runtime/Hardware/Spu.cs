@@ -100,7 +100,7 @@ public sealed class Spu
 
         public int Old, Older;
 
-        public readonly short[] Buf  = new short[28];
+        public readonly short[] Buf = new short[28];
         public readonly short[] Ring = new short[4];
         public int RingPos;
     }
@@ -193,13 +193,13 @@ public sealed class Spu
             var v = _v[n];
             switch (r)
             {
-                case 0x0: v.VolL       = val; break;
-                case 0x2: v.VolR       = val; break;
-                case 0x4: v.Pitch      = val; break;
-                case 0x6: v.StartAddr  = val; break;
-                case 0x8: v.AdsrLo     = val; break;
-                case 0xA: v.AdsrHi     = val; break;
-                case 0xC: v.AdsrVol    = (short)val; break;
+                case 0x0: v.VolL = val; break;
+                case 0x2: v.VolR = val; break;
+                case 0x4: v.Pitch = val; break;
+                case 0x6: v.StartAddr = val; break;
+                case 0x8: v.AdsrLo = val; break;
+                case 0xA: v.AdsrHi = val; break;
+                case 0xC: v.AdsrVol = (short)val; break;
                 case 0xE: v.RepeatAddr = val; break;
             }
             return;
@@ -207,28 +207,28 @@ public sealed class Spu
 
         switch (off)
         {
-            case 0x180: _mainVolL        = val; break;
-            case 0x182: _mainVolR        = val; break;
-            case 0x184: _reverbVolL      = val; break;
-            case 0x186: _reverbVolR      = val; break;
-            case 0x188: KeyOn(val, false);  _kon    = val; break;
-            case 0x18A: KeyOn(val, true);   _konHi  = val; break;
-            case 0x18C: KeyOff(val, false); _koff   = val; break;
+            case 0x180: _mainVolL = val; break;
+            case 0x182: _mainVolR = val; break;
+            case 0x184: _reverbVolL = val; break;
+            case 0x186: _reverbVolR = val; break;
+            case 0x188: KeyOn(val, false);  _kon = val; break;
+            case 0x18A: KeyOn(val, true);   _konHi = val; break;
+            case 0x18C: KeyOff(val, false); _koff = val; break;
             case 0x18E: KeyOff(val, true);  _koffHi = val; break;
-            case 0x190: _pmon            = val; break;
-            case 0x192: _pmonHi          = val; break;
-            case 0x194: _non             = val; break;
-            case 0x196: _nonHi           = val; break;
-            case 0x198: _eon             = val; break;
-            case 0x19A: _eonHi           = val; break;
+            case 0x190: _pmon = val; break;
+            case 0x192: _pmonHi = val; break;
+            case 0x194: _non = val; break;
+            case 0x196: _nonHi = val; break;
+            case 0x198: _eon = val; break;
+            case 0x19A: _eonHi = val; break;
             case 0x1A2: _reverbStartAddr = val; break;
-            case 0x1A6: _transferAddr    = val; break;
-            case 0x1AA: _spucnt          = val; break;
-            case 0x1AC: _transferCtrl    = val; break;
-            case 0x1B0: _cdVolL          = val; break;
-            case 0x1B2: _cdVolR          = val; break;
-            case 0x1B4: _extVolL         = val; break;
-            case 0x1B6: _extVolR         = val; break;
+            case 0x1A6: _transferAddr = val; break;
+            case 0x1AA: _spucnt = val; break;
+            case 0x1AC: _transferCtrl = val; break;
+            case 0x1B0: _cdVolL = val; break;
+            case 0x1B2: _cdVolR = val; break;
+            case 0x1B4: _extVolL = val; break;
+            case 0x1B6: _extVolR = val; break;
         }
     }
 
@@ -239,15 +239,15 @@ public sealed class Spu
         {
             if ((mask & (1 << i)) == 0) continue;
             var v = _v[b + i];
-            v.Phase          = AdsrPhase.Attack;
-            v.AdsrVol        = 0;
+            v.Phase = AdsrPhase.Attack;
+            v.AdsrVol = 0;
             v.AdsrCycleCount = 0;
-            v.CurAddr        = (uint)v.StartAddr << 3;
-            v.RepeatAddr     = v.StartAddr;
-            v.SampleIndex    = 28;
-            v.PitchCounter   = 0;
-            v.Old = v.Older  = 0;
-            v.EndX           = false;
+            v.CurAddr = (uint)v.StartAddr << 3;
+            v.RepeatAddr = v.StartAddr;
+            v.SampleIndex = 28;
+            v.PitchCounter = 0;
+            v.Old = v.Older = 0;
+            v.EndX = false;
             _endx           &= ~(1u << (b + i));
         }
     }
@@ -277,7 +277,7 @@ public sealed class Spu
         TickNoise();
         int sumL = 0, sumR = 0;
 
-        uint nonMask  = (uint)(_non  | (_nonHi  << 16));
+        uint nonMask = (uint)(_non  | (_nonHi  << 16));
         uint pmonMask = (uint)(_pmon | (_pmonHi << 16));
         int prevAmp = 0;
 
@@ -289,7 +289,7 @@ public sealed class Spu
             TickAdsr(v);
 
             bool noise = (nonMask  & (1u << i)) != 0;
-            bool pmod  = i > 0 && (pmonMask & (1u << i)) != 0;
+            bool pmod = i > 0 && (pmonMask & (1u << i)) != 0;
 
             uint pitch = v.Pitch & 0x3FFFu;
             if (pmod) pitch = (uint)Math.Clamp((int)pitch + prevAmp, 0, 0x3FFF);
@@ -324,8 +324,8 @@ public sealed class Spu
                 v.RingPos = (v.RingPos + 1) & 3;
             }
 
-            int amp  = (sample * v.AdsrVol) >> 15;
-            prevAmp  = amp;
+            int amp = (sample * v.AdsrVol) >> 15;
+            prevAmp = amp;
 
             int volL = (v.VolL & 0x8000) != 0 ? (short)(v.VolL << 1) : (short)(v.VolL & 0x7FFF) << 1;
             int volR = (v.VolR & 0x8000) != 0 ? (short)(v.VolR << 1) : (short)(v.VolR & 0x7FFF) << 1;
@@ -340,11 +340,11 @@ public sealed class Spu
 
     bool DecodeBlock(Voice v)
     {
-        uint addr  = v.CurAddr & (uint)(RamSize - 1);
-        byte hdr   = Ram[addr];
+        uint addr = v.CurAddr & (uint)(RamSize - 1);
+        byte hdr = Ram[addr];
         byte flags = Ram[addr + 1];
 
-        int shift  = hdr & 0xF;
+        int shift = hdr & 0xF;
         int filter = (hdr >> 4) & 0x7;
         if (filter > 4) filter = 4;
 
@@ -367,14 +367,14 @@ public sealed class Spu
 
         if ((flags & 1) != 0)
         {
-            v.EndX  = true;
+            v.EndX = true;
             _endx  |= 1u << Array.IndexOf(_v, v);
             v.CurAddr = (uint)v.RepeatAddr << 3;
 
             if ((flags & 2) == 0)
             {
                 v.AdsrVol = 0;
-                v.Phase   = AdsrPhase.Off;
+                v.Phase = AdsrPhase.Off;
                 return true;
             }
         }
@@ -391,7 +391,7 @@ public sealed class Spu
         s += (v.Old * k0 + v.Older * k1) >> 6;
         s = Math.Clamp(s, -32768, 32767);
         v.Older = v.Old;
-        v.Old   = s;
+        v.Old = s;
         v.Buf[v.SampleIndex++] = (short)s;
     }
 
@@ -401,17 +401,17 @@ public sealed class Spu
 
         int lo = v.AdsrLo, hi = v.AdsrHi;
 
-        bool atkExp   = (lo >> 15 & 1) != 0;
+        bool atkExp = (lo >> 15 & 1) != 0;
         int  atkShift = (lo >> 10) & 0x1F;
-        int  atkStep  = (lo >>  8) & 0x3;
+        int  atkStep = (lo >>  8) & 0x3;
         int  decShift = (lo >>  4) & 0xF;
-        int  susLvl   = ((lo & 0xF) + 1) << 11;
+        int  susLvl = ((lo & 0xF) + 1) << 11;
 
-        bool susExp   = (hi >> 15 & 1) != 0;
-        bool susDec   = (hi >> 14 & 1) != 0;
+        bool susExp = (hi >> 15 & 1) != 0;
+        bool susDec = (hi >> 14 & 1) != 0;
         int  susShift = (hi >>  8) & 0x1F;
-        int  susStep  = (hi >>  6) & 0x3;
-        bool relExp   = (hi >>  5 & 1) != 0;
+        int  susStep = (hi >>  6) & 0x3;
+        bool relExp = (hi >>  5 & 1) != 0;
         int  relShift =  hi & 0x1F;
 
         if (v.Phase == AdsrPhase.Attack && v.AdsrVol >= 0x7FFF)
@@ -421,8 +421,8 @@ public sealed class Spu
             v.Phase = AdsrPhase.Sustain;
 
         (bool decrease, int shift, int stepIdx, bool exp) = v.Phase switch {
-            AdsrPhase.Attack  => (false,  atkShift, atkStep, atkExp),
-            AdsrPhase.Decay   => (true,   decShift, 0,       true),
+            AdsrPhase.Attack => (false,  atkShift, atkStep, atkExp),
+            AdsrPhase.Decay => (true,   decShift, 0,       true),
             AdsrPhase.Sustain => (susDec, susShift, susStep, susExp),
             AdsrPhase.Release => (true,   relShift, 0,       relExp),
             _ => (false, 0, 0, false)
@@ -449,7 +449,7 @@ public sealed class Spu
     void TickNoise()
     {
         int shift = (_spucnt >> 10) & 0xF;
-        int step  = ((_spucnt >>  8) & 0x3) + 4;
+        int step = ((_spucnt >>  8) & 0x3) + 4;
 
         _noiseTimer -= step;
         int parity = ((_noiseLevel >> 15) ^ (_noiseLevel >> 12) ^

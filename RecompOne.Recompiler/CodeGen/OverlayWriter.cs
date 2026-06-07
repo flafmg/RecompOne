@@ -30,6 +30,7 @@ public static class OverlayWriter
         {
             List<MipsFunction> funcs;
             MipsInstruction[] mainInstrs;
+            ElfInfo? elfInfo = null;
 
             if (config.Elf != null)
             {
@@ -37,22 +38,13 @@ public static class OverlayWriter
                     throw new FileNotFoundException($"Main ELF not found: {config.Elf}");
 
                 Console.WriteLine($"[Recompiler] Processing main executable: {config.Elf}");
-                var elfInfo = ElfReader.Read(config.Elf);
+                elfInfo = ElfReader.Read(config.Elf);
                 Console.WriteLine($"[Recompiler] ELF map: TextBase=0x{elfInfo.TextBase:X8} Functions={elfInfo.Functions.Count}");
                 Console.WriteLine($"[Recompiler] code source: disc PS-EXE {sysCfg.BootExe} ({mainExe.Code.Length}B)");
 
                 mainInstrs = MipsDisasm.Disassemble(mainExe.Code, elfInfo.TextBase);
 
                 funcs = elfInfo.Functions.Count > 0 ? FunctionDetector.DetectFromElf(mainInstrs, elfInfo, "main") : FunctionDetector.DetectFromScan(mainInstrs, elfInfo.LoadAddress, "main");
-                
-                var mainDiscovered = FunctionDetector.DiscoverCalls(mainInstrs, funcs, elfInfo.NoTypeSymbols, "main");
-                if (mainDiscovered.Count > 0)
-                {
-                    funcs.AddRange(mainDiscovered);
-                    Console.WriteLine($"[Recompiler] discovered {mainDiscovered.Count} called function(s) in main"); 
-                }
-
-                AnalyzeJumpTables(funcs, elfInfo, "main");
             }
             else
             {
@@ -61,12 +53,26 @@ public static class OverlayWriter
                 funcs = FunctionDetector.DetectFromScan(mainInstrs, mainExe.InitialPC, "main");
             }
 
-            if (config.Functions.Length > 0)
+            if (funcs.All(f => f.Start != mainExe.InitialPC))
             {
-                var extras = FunctionDetector.DetectFromAddresses(mainInstrs, config.Functions.Select(f => (Convert.ToUInt32(f.Address, 16), f.Name)), funcs, "main");
-                funcs.AddRange(extras);
-                Console.WriteLine($"[Recompiler] added {extras.Count} extra function from config to main");
+                var entry = FunctionDetector.DetectFromAddresses(mainInstrs, [(mainExe.InitialPC, null)], funcs, "main");
+                funcs.AddRange(entry);
+                Console.WriteLine($"[Recompiler] added entry point function at 0x{mainExe.InitialPC:X8}");
             }
+
+            var mainDiscovered = FunctionDetector.DiscoverCalls(mainInstrs, funcs, elfInfo?.NoTypeSymbols ?? [], "main");
+            if (mainDiscovered.Count > 0)
+            {
+                funcs.AddRange(mainDiscovered);
+                Console.WriteLine($"[Recompiler] discovered {mainDiscovered.Count} called function(s) in main");
+            }
+
+            AddConfigFunctions(funcs, config.Functions, mainInstrs, elfInfo?.NoTypeSymbols ?? [], "main");
+
+            if (config.LinearSweep)
+                SweepFunctions(funcs, mainInstrs, elfInfo?.NoTypeSymbols ?? [], "main");
+
+            if (elfInfo != null) AnalyzeJumpTables(funcs, elfInfo, "main");
 
             ApplyStubsAndIgnored(funcs, config.Stubs, config.Ignored);
             overlayResults.Add(new OverlayResult("main", funcs, -1));
@@ -88,17 +94,21 @@ public static class OverlayWriter
             Console.WriteLine($"[Recompiler] processing the overlay {overlayConfig.Name}");
             var elfInfo = ElfReader.Read(overlayConfig.Elf);
 
-            var discBin = LoadDiscBin(fs, overlayConfig.Name);
+            var (discBin, overlayLba) = ResolveOverlay(fs, overlayConfig);
             if (discBin == null)
             {
-                Console.WriteLine($"[Recompiler] WARNING: {overlayConfig.Name.ToUpperInvariant()} not on disc, this will be skipped'");
+                Console.WriteLine($"[Recompiler] WARNING: could not resolve disc data for overlay '{overlayConfig.Name}', skipping");
                 continue;
             }
+
+            if (overlayConfig.Rebase != 0)
+                RebaseElf(elfInfo, overlayConfig.Rebase, discBin);
 
             var instrs = MipsDisasm.Disassemble(discBin, elfInfo.TextBase);
 
             //elf is weird and doest properly provide all functions (specially asm) so resort to checking it
             var funcs = elfInfo.Functions.Count > 0 ? FunctionDetector.DetectFromElf(instrs, elfInfo, overlayConfig.Name) : FunctionDetector.DetectFromScan(instrs, elfInfo.LoadAddress, overlayConfig.Name);
+
             var discovered = FunctionDetector.DiscoverCalls(instrs, funcs, elfInfo.NoTypeSymbols, overlayConfig.Name);
             if (discovered.Count > 0)
             {
@@ -106,18 +116,15 @@ public static class OverlayWriter
                 Console.WriteLine($"[Recompiler] discovered {discovered.Count} called funs in {overlayConfig.Name}");
             }
 
-            if (overlayConfig.Functions.Length > 0)
-            {
-                var extras = FunctionDetector.DetectFromAddresses(instrs, overlayConfig.Functions.Select(f => (Convert.ToUInt32(f.Address, 16), f.Name)), funcs, overlayConfig.Name);
-                funcs.AddRange(extras);
-            }
+            AddConfigFunctions(funcs, overlayConfig.Functions, instrs, elfInfo.NoTypeSymbols, overlayConfig.Name);
+
+            if (overlayConfig.LinearSweep ?? config.LinearSweep)
+                SweepFunctions(funcs, instrs, elfInfo.NoTypeSymbols, overlayConfig.Name);
 
             AnalyzeJumpTables(funcs, elfInfo, overlayConfig.Name);
 
-            int lba = fs.Locate(overlayConfig.Name + ".BIN", out int l, out _) ? l : -1;
-
             ApplyStubsAndIgnored(funcs, overlayConfig.Stubs.Concat(config.Stubs), overlayConfig.Ignored.Concat(config.Ignored));
-            overlayResults.Add(new OverlayResult(overlayConfig.Name, funcs, lba));
+            overlayResults.Add(new OverlayResult(overlayConfig.Name, funcs, overlayLba));
         }
 
         var allFuncs = overlayResults.SelectMany(o => o.Functions).ToList();
@@ -153,6 +160,34 @@ public static class OverlayWriter
 
         Console.WriteLine("[Recompiler] finished "); //maybe add time it took
     }
+    
+    static void AddConfigFunctions(List<MipsFunction> funcs, Config.FunctionEntry[] entries, MipsInstruction[] instrs, IEnumerable<Elf.FunctionEntry> noTypeSymbols, string overlayName)
+    {
+        if (entries.Length == 0) return;
+
+        var have = new HashSet<uint>(funcs.Select(f => f.Start));
+        var missing = entries
+            .Select(f => (Addr: Convert.ToUInt32(f.Address, 16), f.Name))
+            .Where(e => have.Add(e.Addr))
+            .ToList();
+        if (missing.Count == 0) return;
+
+        var extras = FunctionDetector.DetectFromAddresses(instrs, missing.Select(e => (e.Addr, e.Name)), funcs, overlayName);
+        funcs.AddRange(extras);
+        var callees = FunctionDetector.DiscoverCalls(instrs, funcs, noTypeSymbols, overlayName);
+        funcs.AddRange(callees);
+        Console.WriteLine($"[Recompiler] added {extras.Count} config function(s) (+{callees.Count} callees) to {overlayName}");
+    }
+
+    static void SweepFunctions(List<MipsFunction> funcs, MipsInstruction[] instrs, IEnumerable<Elf.FunctionEntry> noTypeSymbols, string overlayName)
+    {
+        var swept = FunctionDetector.LinearSweep(instrs, funcs, noTypeSymbols, overlayName);
+        if (swept.Count == 0) return;
+        funcs.AddRange(swept);
+        var callees = FunctionDetector.DiscoverCalls(instrs, funcs, noTypeSymbols, overlayName);
+        funcs.AddRange(callees);
+        Console.WriteLine($"[Recompiler] linear sweep found {swept.Count} function(s) (+{callees.Count} callees) in {overlayName}");
+    }
 
     static void EmitOverlayFile(string overlayName, List<MipsFunction> funcs, string className, Dictionary<uint, string> knownFuncs, bool debug, int lbaStart, string outDir)
     {
@@ -176,7 +211,8 @@ public static class OverlayWriter
                 KnownFunctions = knownFuncs,
                 Labels = labels,
                 Debug = debug,
-                JumpTablesByJr = func.JumpTables.ToDictionary(j => j.JrVram)
+                JumpTablesByJr = func.JumpTables.ToDictionary(j => j.JrVram),
+                RaReturnJrs = FunctionDetector.ComputeRaReturnJrs(func)
             };
             sb.Append(FunctionEmitter.Emit(func, ctx));
         }
@@ -207,26 +243,73 @@ public static class OverlayWriter
             .Select(g => g.Key).ToHashSet();
 
         foreach (var func in allFuncs)
-            func.EmittedName = crossOverlayDups.Contains(func.Name) && !string.IsNullOrEmpty(func.OverlayName)
+            func.EmittedName = SafeFuncName(crossOverlayDups.Contains(func.Name) && !string.IsNullOrEmpty(func.OverlayName)
                 ? $"{func.Name}_{SafeIdentifier(func.OverlayName)}"
-                : func.Name;
+                : func.Name);
 
         foreach (var group in allFuncs.GroupBy(f => (f.OverlayName, f.EmittedName)).Where(g => g.Count() > 1))
             foreach (var func in group)
                 func.EmittedName = $"{func.EmittedName}_{func.Start:X8}";
     }
 
-    static byte[]? LoadDiscBin(CueFs fs, string name)
+    static string SafeFuncName(string s) => Regex.Replace(s, @"[^A-Za-z0-9_]", "_");
+
+    static (byte[]? data, int lba) ResolveOverlay(CueFs fs, Config.OverlayConfig cfg)
     {
         try
         {
-            var path = fs.FindFile(name + ".BIN");
-            return path == null ? null : fs.ReadFile(path);
+            if (cfg.Lba >= 0)
+            {
+                int sz = cfg.Size ?? throw new InvalidOperationException($"'size' is required when using 'lba' for overlay '{cfg.Name}'");
+                return (Decrypt(fs.ReadSectors(cfg.Lba, sz), cfg.Decrypt), cfg.Lba);
+            }
+            if (cfg.File != null)
+            {
+                if (!fs.Locate(cfg.File, out int lba, out uint fileSize))
+                {
+                    Console.WriteLine($"[Recompiler] WARNING: disc file not found: {cfg.File}");
+                    return (null, -1);
+                }
+                int absLba = lba + cfg.Offset / 2048;
+                byte[] full = fs.ReadFile(cfg.File);
+                int start = cfg.Offset + cfg.Skip;
+                int length = cfg.Size ?? (full.Length - start);
+                return (Decrypt(full.AsSpan(start, length).ToArray(), cfg.Decrypt), absLba);
+            }
+            Console.WriteLine($"[Recompiler] WARNING: overlay '{cfg.Name}' has no 'file' or 'lba' source defined");
+            return (null, -1);
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Recompiler] WARNING: failed to resolve disc data for '{cfg.Name}': {ex.Message}");
+            return (null, -1);
+        }
     }
 
-    //still not ideal but it works
+    
+    static void RebaseElf(ElfInfo elf, int delta, byte[] discBin)
+    {
+        uint d = (uint)delta;
+        elf.TextBase += d;
+        elf.LoadAddress += d;
+        foreach (var f in elf.Functions) f.Address += d;
+        foreach (var f in elf.NoTypeSymbols) f.Address += d;
+        foreach (var s in elf.DataSections) s.Va += d;
+        elf.TextData = discBin;
+    }
+
+    static byte[] Decrypt(byte[] data, bool decrypt)
+    {
+        if (!decrypt) return data;
+        uint seed = 0;
+        for (int i = 0; i + 4 <= data.Length; i += 4)
+        {
+            seed = (seed + 0x01309125u) * 0x03A452F7u;
+            uint w = BitConverter.ToUInt32(data, i) ^ seed;
+            BitConverter.GetBytes(w).CopyTo(data, i);
+        }
+        return data;
+    }
     static void AnalyzeJumpTables(List<MipsFunction> funcs, ElfInfo elf, string name)
     {
         int funcsWithTables = 0, totalEntries = 0;
@@ -240,7 +323,7 @@ public static class OverlayWriter
         if (funcsWithTables > 0)
             Console.WriteLine($"[Recompiler] {name}: found jump tables in {funcsWithTables} function(s), {totalEntries} entries in total");
     }
-
+    
     static void ApplyPatches(List<MipsFunction> funcs, Config.PatchEntry[] patches)
     {
         if (patches.Length == 0) return;

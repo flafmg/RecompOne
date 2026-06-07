@@ -11,9 +11,13 @@ internal static unsafe class Audio
     static ALDevice* _device;
     static ALCtx* _context;
 
+    
+    const int NumBuffers = 24;
+    const int FramesPerBuffer = 735;
+
     static uint _source;
-    static uint[] _buffers = new uint[4];
-    static short[] _sampleBuf = new short[735 * 2]; // 1 frame at 60Hz: 44100 / 60 = 735 samples. 2 channels.
+    static uint[] _buffers = new uint[NumBuffers];
+    static short[] _sampleBuf = new short[FramesPerBuffer * 2];
 
     public static void Initialize()
     {
@@ -32,8 +36,8 @@ internal static unsafe class Audio
 
             _source = _al.GenSource();
             fixed (uint* ptr = _buffers)
-                _al.GenBuffers(4, ptr);
-            
+                _al.GenBuffers(NumBuffers, ptr);
+
             //initial empty rihgt
             for (int i = 0; i < _buffers.Length; i++)
             {
@@ -60,7 +64,7 @@ internal static unsafe class Audio
             uint buf = 0;
             _al.SourceUnqueueBuffers(_source, 1, &buf);
             
-            for (int i = 0; i < 735; i++)
+            for (int i = 0; i < FramesPerBuffer; i++)
             {
                 var (l, r) = spu.Tick();
                 if (XaAudio.Next(out short xl, out short xr))

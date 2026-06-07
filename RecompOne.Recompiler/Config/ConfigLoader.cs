@@ -10,6 +10,7 @@ public sealed class RecompOneConfig
     [JsonPropertyName("elf")] public string? Elf { get; set; }
     [JsonPropertyName("main")] public string? Main { get; set; }
     [JsonPropertyName("functions")] public FunctionEntry[] Functions { get; set; } = [];
+    [JsonPropertyName("linearSweep")] public bool LinearSweep { get; set; } //linear sweep is to find functions when the elf doesnt ptovide then properly (fuck you sh) this can and WILL get some data as code, use it by your own risk
     [JsonPropertyName("debug")] public bool Debug { get; set; }
     [JsonPropertyName("overlays")] public OverlayConfig[] Overlays { get; set; } = [];
     [JsonPropertyName("stubs")] public string[] Stubs { get; set; } = [];
@@ -34,7 +35,15 @@ public sealed class OverlayConfig
 {
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("elf")] public string? Elf { get; set; }
+    [JsonPropertyName("file")] public string? File { get; set; }
+    [JsonPropertyName("offset")] public int Offset { get; set; } = 0;
+    [JsonPropertyName("skip")] public int Skip { get; set; } = 0;
+    [JsonPropertyName("lba")] public int Lba { get; set; } = -1;
+    [JsonPropertyName("size")] public int? Size { get; set; }
+    [JsonPropertyName("decrypt")] public bool Decrypt { get; set; }
+    [JsonPropertyName("rebase")] public int Rebase { get; set; } = 0;
     [JsonPropertyName("functions")] public FunctionEntry[] Functions { get; set; } = [];
+    [JsonPropertyName("linearSweep")] public bool? LinearSweep { get; set; }
     [JsonPropertyName("stubs")] public string[] Stubs { get; set; } = [];
     [JsonPropertyName("ignored")] public string[] Ignored { get; set; } = [];
 }

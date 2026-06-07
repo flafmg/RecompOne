@@ -121,10 +121,10 @@ public sealed class Dma
         uint addr = madr;
         for (uint i = 0; i < count - 1; i++)
         {
-            _mem.WriteU32(addr, addr - 4u);
+            _mem.WriteU32(addr, (addr - 4u) & 0x00FFFFFFu);
             addr -= 4u;
         }
-        _mem.WriteU32(addr, 0xFFFFFFu);
+        _mem.WriteU32(addr, 0x00FFFFFFu);
     }
 
     void Complete(int channel)

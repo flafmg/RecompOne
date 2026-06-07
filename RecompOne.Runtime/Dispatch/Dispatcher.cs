@@ -32,10 +32,15 @@ public static class Dispatcher
         var toUnload = _active
             .Where(n => _registry[n].Functions.Keys.Any(a => newAddrs.Contains(a)))
             .ToList();
-        foreach (var n in toUnload) _active.Remove(n);
+        foreach (var n in toUnload)
+        {
+            _active.Remove(n);
+            Runtime.OverlayLog.Record(n, OverlayEventKind.Overwritten, name);
+        }
 
         _active.Add(name);
         Rebuild();
+        Runtime.OverlayLog.Record(name, OverlayEventKind.Loaded);
         Console.WriteLine($"[Dispatcher] loaded overlay: {name}");
     }
 
@@ -49,6 +54,7 @@ public static class Dispatcher
     {
         if (!_active.Remove(name)) return;
         Rebuild();
+        Runtime.OverlayLog.Record(name, OverlayEventKind.Unloaded);
     }
 
     public static void Call(CpuContext c, IMemory m, uint addr)

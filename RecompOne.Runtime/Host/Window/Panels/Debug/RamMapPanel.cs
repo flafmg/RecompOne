@@ -1,0 +1,94 @@
+using System.Numerics;
+using ImGuiNET;
+using RecompOne.Runtime.Memory;
+
+namespace RecompOne.Runtime.Host.Window;
+
+//inspired on pcsxredux's one
+internal sealed class RamMapPanel : IPanel
+{
+    public string Name => "RAM Map";
+    public bool IsOpen { get; set; }
+
+    static uint _texId;
+    public static void SetTexture(uint id) => _texId = id;
+
+    readonly TextureView _view = new();
+
+    public void Draw()
+    {
+        var flags = ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.MenuBar;
+        ImGui.SetNextWindowSize(new Vector2(820, 300), ImGuiCond.FirstUseEver);
+
+        bool open = IsOpen;
+        if (!ImGui.Begin(Name, ref open, flags)) { IsOpen = open; ImGui.End(); return; }
+
+        DrawMenuBar();
+        DrawMap();
+
+        IsOpen = open;
+        ImGui.End();
+    }
+
+    void DrawMenuBar()
+    {
+        if (!ImGui.BeginMenuBar()) return;
+
+        if (ImGui.BeginMenu("View"))
+        {
+            if (ImGui.MenuItem("Reset view")) _view.Reset();
+            ImGui.Separator();
+            ImGui.MenuItem("Show greyscale", null, ref Runtime.RamLog.ShowGreyscale);
+            ImGui.EndMenu();
+        }
+
+        if (ImGui.BeginMenu("Configuration"))
+        {
+            ImGui.SliderFloat("Decay (frames)", ref Runtime.RamLog.DecayFrames, 10f, 600f);
+            ImGui.Separator();
+            ImGui.ColorEdit4("Write color", ref Runtime.RamLog.WriteColor);
+            ImGui.EndMenu();
+        }
+
+        ImGui.TextDisabled($"Zoom: {_view.Zoom:F2}x");
+
+        if (_hoveredAddr.HasValue && _hoveredAddr.Value < 0x200000u)
+        {
+            ImGui.SameLine();
+            ImGui.Spacing();
+            ImGui.SameLine();
+            ImGui.TextDisabled($"0x{0x80000000u + _hoveredAddr.Value:X8}");
+        }
+
+        ImGui.EndMenuBar();
+    }
+
+    uint? _hoveredAddr;
+
+    void DrawMap()
+    {
+        if (_texId == 0) { ImGui.TextDisabled("Waiting for RAM texture..."); return; }
+
+        var r = _view.Draw(_texId, RamLogger.Width, RamLogger.Height);
+        _hoveredAddr = null;
+        if (!r.Hovered) return;
+
+        var texel = (ImGui.GetIO().MousePos - r.ImgPos) / r.Scale;
+        int byteX = (int)texel.X, byteY = (int)texel.Y;
+        if (byteX >= 0 && byteY >= 0 && byteX < RamLogger.Width && byteY < RamLogger.Height)
+        {
+            uint addr = (uint)byteY * RamLogger.Width + (uint)byteX;
+            if (addr < 0x200000u) _hoveredAddr = addr;
+        }
+
+        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left) && _hoveredAddr.HasValue)
+        {
+            var hex = PanelManager.Get<RamHexPanel>();
+            if (hex != null)
+            {
+                hex.JumpTo(_hoveredAddr.Value);
+                hex.IsOpen = true;
+            }
+        }
+    }
+}

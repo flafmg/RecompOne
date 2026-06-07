@@ -83,15 +83,16 @@ public static class JumpTableAnalyzer
                 case 35:
                     if (rt != 0)
                     {
+                        var baseReg = regs[rs];
                         regs[rt].Invalidate();
-                        if (rs != 29 && regs[rs].ValidLui && regs[rs].ValidAddend)
+                        if (rs != 29 && baseReg.ValidLui && (baseReg.ValidAddend || baseReg.ValidAddiu))
                         {
                             short imm = instr.ImmS;
                             bool  nonzero = imm != 0;
-                            if (!(nonzero && regs[rs].ValidAddiu))
+                            if (!(nonzero && baseReg.ValidAddiu))
                             {
-                                uint lo16 = nonzero ? (uint)(int)imm : (uint)regs[rs].PrevAddiuLo;
-                                regs[rt].TableVram = regs[rs].PrevLui + lo16;
+                                uint lo16 = nonzero ? (uint)(int)imm : (uint)baseReg.PrevAddiuLo;
+                                regs[rt].TableVram = baseReg.PrevLui + lo16;
                                 regs[rt].ValidLoaded = true;
                             }
                         }

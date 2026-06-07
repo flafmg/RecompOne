@@ -94,6 +94,18 @@ public sealed class MemoryCard
         return free[0];
     }
 
+    public void FrameRead(int frame, Span<byte> dst)
+    {
+        if ((uint)frame < CardSize / Fr) _d.AsSpan(frame * Fr, Fr).CopyTo(dst);
+    }
+
+    public void FrameWrite(int frame, ReadOnlySpan<byte> src)
+    {
+        if ((uint)frame >= CardSize / Fr) return;
+        src.CopyTo(_d.AsSpan(frame * Fr, Fr));
+        Flush();
+    }
+
     public byte ReadByte(int[] chain, int pos)
     {
         int bi = pos / Blk, off = pos % Blk;

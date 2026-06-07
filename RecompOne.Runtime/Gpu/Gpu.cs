@@ -1,5 +1,6 @@
 namespace RecompOne.Runtime;
 
+//ToDO: HLE gpu
 public sealed partial class Gpu
 {
     public const int VramWidth = 1024;
@@ -44,8 +45,26 @@ public sealed partial class Gpu
     public bool DisplayEnabled => !_displayDisabled;
     public bool Display24Bit => _disp24;
 
-    public int DisplayWidth => _hres368 ? 368 : _hres switch { 0 => 256, 1 => 320, 2 => 512, _ => 640 };
-    public int DisplayHeight => _vres480 ? 480 : 240;
+    int CyclesPerPixel => _hres368 ? 7 : _hres switch { 0 => 10, 1 => 8, 2 => 5, _ => 4 };
+
+    public int DisplayWidth
+    {
+        get
+        {
+            int w = ((_hRange2 - _hRange1) / CyclesPerPixel + 2) & ~3;
+            return Math.Clamp(w, 0, VramWidth);
+        }
+    }
+
+    public int DisplayHeight
+    {
+        get
+        {
+            int lines = _vRange2 - _vRange1;
+            if (_vres480) lines <<= 1;
+            return Math.Clamp(lines, 0, VramHeight);
+        }
+    }
 
     public uint ReadStat() 
     {

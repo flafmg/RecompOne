@@ -24,6 +24,59 @@ public static class BiosB
             if (_evCBs[i].Status == 2u && _evCBs[i].Class == @class && _evCBs[i].Spec == spec)
                 _evCBs[i].Status = 4u;
     }
+    
+    public static void DeliverEventIntr(CpuContext c, IMemory m, uint @class, uint spec)
+    {
+        for (int i = 0; i < MaxEvents; i++)
+        {
+            if (_evCBs[i].Status != 2u || _evCBs[i].Class != @class || _evCBs[i].Spec != spec) continue;
+            if ((_evCBs[i].Mode & 0x1000u) != 0 && _evCBs[i].Func != 0u)
+            {
+                var snap = c.Snapshot();
+                RecompOne.Runtime.Dispatch.Dispatcher.Call(c, m, _evCBs[i].Func);
+                c.Restore(snap);
+            }
+            else
+            {
+                _evCBs[i].Status = 4u;
+            }
+        }
+    }
+    
+    public static void CardComplete(CpuContext c, IMemory m, uint port)
+    {
+        var card = (port & 0x10u) != 0 ? Runtime.CardB : Runtime.CardA;
+        uint spec = card.Enabled ? 0x0004u : 0x0100u;
+        
+        DeliverEventIntr(c, m, 0xF4000001u, spec);
+        DeliverEventIntr(c, m, 0xF0000011u, spec);
+    }
+
+    static void CardRead(CpuContext c, IMemory m)
+    {
+        var card = (c.A0 & 0x10u) != 0 ? Runtime.CardB : Runtime.CardA;
+        if (card.Enabled && c.A2 != 0u)
+        {
+            Span<byte> f = stackalloc byte[0x80];
+            card.FrameRead((int)(c.A1 & 0x3FFu), f);
+            for (uint i = 0; i < 0x80u; i++) m.WriteU8(c.A2 + i, f[(int)i]);
+        }
+        CardComplete(c, m, c.A0);
+        c.V0 = 1u;
+    }
+
+    static void CardWrite(CpuContext c, IMemory m)
+    {
+        var card = (c.A0 & 0x10u) != 0 ? Runtime.CardB : Runtime.CardA;
+        if (card.Enabled && c.A2 != 0u)
+        {
+            Span<byte> f = stackalloc byte[0x80];
+            for (uint i = 0; i < 0x80u; i++) f[(int)i] = m.ReadU8(c.A2 + i);
+            card.FrameWrite((int)(c.A1 & 0x3FFu), f);
+        }
+        CardComplete(c, m, c.A0);
+        c.V0 = 1u;
+    }
 
     public static uint GetFreeEvSlot()
     {
@@ -36,8 +89,14 @@ public static class BiosB
         if (_padBuf == 0) return;
         ushort s = Hardware.Controller.State;
         ushort swapped = (ushort)((s >> 8) | (s << 8));
-        m.WriteU32(_padBuf, 0xFFFF0000u | swapped);
+        m.WriteU32(_padBuf,     0xFFFF0000u | swapped);
+        m.WriteU8(_padBuf + 4, Hardware.Controller.RightX);
+        m.WriteU8(_padBuf + 5, Hardware.Controller.RightY);
+        m.WriteU8(_padBuf + 6, Hardware.Controller.LeftX);
+        m.WriteU8(_padBuf + 7, Hardware.Controller.LeftY);
     }
+
+    public static void RefreshPad(IMemory m) => PadRead(m);
     public static void Dispatch(CpuContext c, IMemory m, uint fn)
     {
         Log.Bios($"B({fn:X2}) {BiosNames.B(fn)}");
@@ -111,8 +170,8 @@ public static class BiosB
             case 0x4B: c.V0 = 1u; break;
             case 0x4C: c.V0 = 1u; break;
             case 0x4D: break;
-            case 0x4E: c.V0 = GetFreeEvSlot(); break;
-            case 0x4F: c.V0 = 0xFFFFFFFFu; break;
+            case 0x4E: CardWrite(c, m); break;
+            case 0x4F: CardRead(c, m); break;
             case 0x50: break;
             case 0x51: c.V0 = 0u; break;
             case 0x53: c.V0 = 0u; break;

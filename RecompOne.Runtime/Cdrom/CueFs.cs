@@ -83,6 +83,8 @@ public sealed class CueFs : IDisposable
 
     public byte[] ReadSectorData(int lba, int size) => _bin.ReadSectorData(lba, size);
 
+    public byte[] ReadSectors(int lba, int size) => ReadExtent(lba, size);
+
     private string? Search(Entry dir, string basePath, string name)
     {
         foreach (var e in Entries(dir))

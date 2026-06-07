@@ -3,6 +3,8 @@ namespace RecompOne.Runtime.Hardware;
 public static class Controller
 {
     public const ushort Select = 1 << 0;
+    public const ushort L3 = 1 << 1;
+    public const ushort R3 = 1 << 2;
     public const ushort Start = 1 << 3;
     public const ushort Up = 1 << 4;
     public const ushort Right = 1 << 5;
@@ -15,8 +17,11 @@ public static class Controller
     public const ushort Triangle = 1 << 12;
     public const ushort Circle = 1 << 13;
     public const ushort Cross = 1 << 14;
-    public const ushort Square = 1 << 15; 
-    //still the same, but its cleaner to udnerstand what bit is what
+    public const ushort Square = 1 << 15;
 
     public static ushort State = 0xFFFF;
+    public static byte   RightX = 0x80;
+    public static byte   RightY = 0x80;
+    public static byte   LeftX = 0x80;
+    public static byte   LeftY = 0x80;
 }

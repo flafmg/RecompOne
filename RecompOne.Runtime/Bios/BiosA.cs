@@ -415,8 +415,8 @@ public static class BiosA
                 break;
             }
             case 0xA6: c.V0 = _cd != null ? _cd.DriveStatusByte() : 0x02u; break;
-            case 0xAB: CardEvent(c.A0); c.V0 = 1u; break;
-            case 0xAC: CardEvent(c.A0); c.V0 = 1u; break;
+            case 0xAB: BiosB.CardComplete(c, m, c.A0); c.V0 = 1u; break;
+            case 0xAC: BiosB.CardComplete(c, m, c.A0); c.V0 = 1u; break;
             case 0xA7: case 0xA8: case 0xA9: case 0xAA:
             case 0xAD: case 0xAE: case 0xAF: break;
             case 0xB4:
@@ -712,7 +712,6 @@ public static class BiosA
         if (endptrPtr != 0) m.WriteU32(endptrPtr, str + (uint)i);
         return result;
     }
-
     static int BStrtol(IMemory m, uint str, uint endptrPtr, uint ubase)
     {
         string s = Bios.ReadString(m, str).TrimStart();

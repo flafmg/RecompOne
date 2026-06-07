@@ -2,13 +2,13 @@ namespace RecompOne.Runtime;
 
 public static class Log
 {
-    public static bool BiosOn = true;
-    public static bool SpuOn = true;
-    public static bool GpuOn = true;
-    public static bool DmaOn = true;
-    public static bool CdOn = true;
-    public static bool SdkOn = true;
-    public static bool MdecOn = true;
+    public static bool BiosOn = false;
+    public static bool SpuOn = false;
+    public static bool GpuOn = false;
+    public static bool DmaOn = false;
+    public static bool CdOn = false;
+    public static bool SdkOn = false;
+    public static bool MdecOn = false;
 
     public static void Mdec(string m)
     {

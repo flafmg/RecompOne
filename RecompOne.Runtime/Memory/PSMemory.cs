@@ -1,4 +1,5 @@
 using RecompOne.Runtime.Cdrom;
+using RecompOne.Runtime.Hardware;
 
 namespace RecompOne.Runtime.Memory;
 
@@ -11,8 +12,12 @@ public sealed class PSMemory : IMemory
     private readonly Gpu _gpu = new();
     private readonly Spu _spu = new();
     private readonly Mdec _mdec = new();
+    private readonly Timers _timers = new();
     private readonly Dma _dma;
     private CdController? _cd;
+
+    public ReadOnlySpan<byte> Ram => _ram;
+    internal byte[] RamBuffer => _ram;
 
     public PSMemory()
     {
@@ -38,6 +43,12 @@ public sealed class PSMemory : IMemory
         _hwregs[o + 1] = (byte)(v >> 8);
         _hwregs[o + 2] = (byte)(v >> 16);
         _hwregs[o + 3] = (byte)(v >> 24);
+    }
+
+    private void TrackWrite(uint phys, int size)
+    {
+        if (phys < MemoryMap.RamWindow)
+            Runtime.RamLog.RecordWrite(phys % (uint)_ram.Length, size);
     }
 
     private Span<byte> Resolve(uint address, int size)
@@ -71,6 +82,7 @@ public sealed class PSMemory : IMemory
         uint phys = MemoryMap.ToPhysical(address);
         if (_cd != null && IsCd(phys)) return _cd.Read(phys);
         if (IsSpu(phys)) return _spu.ReadReg16(phys);
+        if (Timers.InRange(phys) && _timers.TryRead(phys, out uint tv)) return (ushort)tv;
         var s = Resolve(address, 2);
         return (ushort)(s[0] | (s[1] << 8));
     }
@@ -85,6 +97,7 @@ public sealed class PSMemory : IMemory
         if (phys == 0x1F8010F4u) return _dma.ReadDicr();
         if (_cd != null && IsCd(phys)) return _cd.Read(phys);
         if (IsSpu(phys)) return (uint)(_spu.ReadReg16(phys) | (_spu.ReadReg16(phys + 2) << 16));
+        if (Timers.InRange(phys) && _timers.TryRead(phys, out uint tv)) return tv;
         var s = Resolve(address, 4);
         return (uint)(s[0] | (s[1] << 8) | (s[2] << 16) | (s[3] << 24));
     }
@@ -92,6 +105,7 @@ public sealed class PSMemory : IMemory
     public void WriteU8(uint address, byte value)
     {
         uint phys = MemoryMap.ToPhysical(address);
+        TrackWrite(phys, 1);
         if (_cd != null && IsCd(phys)) { _cd.Write(phys, value); return; }
         Resolve(address, 1)[0] = value;
     }
@@ -99,8 +113,10 @@ public sealed class PSMemory : IMemory
     public void WriteU16(uint address, ushort value)
     {
         uint phys = MemoryMap.ToPhysical(address);
+        TrackWrite(phys, 2);
         if (_cd != null && IsCd(phys)) { _cd.Write(phys, (byte)value); return; }
         if (IsSpu(phys)) { _spu.WriteReg16(phys, value); return; }
+        if (_timers.TryWrite(phys, value)) return;
         var s = Resolve(address, 2);
         s[0] = (byte)value;
         s[1] = (byte)(value >> 8);
@@ -109,6 +125,7 @@ public sealed class PSMemory : IMemory
     public void WriteU32(uint address, uint value)
     {
         uint phys = MemoryMap.ToPhysical(address);
+        TrackWrite(phys, 4);
         if (phys == 0x1F801810u) { _gpu.WriteGp0(value); return; }
         if (phys == 0x1F801814u) { _gpu.WriteGp1(value); return; }
         if (phys == 0x1F801820u) { _mdec.Write0(value); return; }
@@ -122,6 +139,7 @@ public sealed class PSMemory : IMemory
         }
         if (_cd != null && IsCd(phys)) { _cd.Write(phys, (byte)value); return; }
         if (IsSpu(phys)) { _spu.WriteReg16(phys, (ushort)value); _spu.WriteReg16(phys + 2, (ushort)(value >> 16)); return; }
+        if (_timers.TryWrite(phys, value)) return;
         var s = Resolve(address, 4);
         s[0] = (byte)value;
         s[1] = (byte)(value >> 8);
@@ -131,36 +149,32 @@ public sealed class PSMemory : IMemory
 
     public uint ReadWordLeft(uint current, uint address)
     {
-        uint aligned = address & ~3u;
-        uint shift = (address & 3) * 8;
-        uint mask = 0xFFFFFFFFu << (int)shift;
-        uint word = ReadU32(aligned);
-        return (current & ~mask) | ((word << (int)shift) & mask);
+        int shift = (int)((address & 3) * 8);
+        uint word = ReadU32(address & ~3u);
+        return (current & (0x00FFFFFFu >> shift)) | (word << (24 - shift));
     }
 
     public uint ReadWordRight(uint current, uint address)
     {
-        uint aligned = address & ~3u;
-        uint shift = ((3 - address) & 3) * 8;
-        uint mask = 0xFFFFFFFFu >> (int)shift;
-        uint word = ReadU32(aligned);
-        return (current & ~mask) | ((word >> (int)shift) & mask);
+        int shift = (int)((address & 3) * 8);
+        uint word = ReadU32(address & ~3u);
+        return (current & (0xFFFFFF00u << (24 - shift))) | (word >> shift);
     }
 
     public void WriteWordLeft(uint address, uint value)
     {
         uint aligned = address & ~3u;
-        uint byteOff = address & 3;
-        for (uint i = 0; i <= byteOff; i++)
-            WriteU8(aligned + i, (byte)(value >> (int)((byteOff - i) * 8)));
+        int shift = (int)((address & 3) * 8);
+        uint mem = ReadU32(aligned);
+        WriteU32(aligned, (mem & (0xFFFFFF00u << shift)) | (value >> (24 - shift)));
     }
 
     public void WriteWordRight(uint address, uint value)
     {
         uint aligned = address & ~3u;
-        uint byteOff = address & 3;
-        for (uint i = byteOff; i < 4; i++)
-            WriteU8(aligned + i, (byte)(value >> (int)((i - byteOff) * 8)));
+        int shift = (int)((address & 3) * 8);
+        uint mem = ReadU32(aligned);
+        WriteU32(aligned, (mem & (0x00FFFFFFu >> (24 - shift))) | (value << shift));
     }
 
     public void LoadBytes(uint address, byte[] data)

@@ -205,6 +205,13 @@ public sealed class CdController
         if (_dataFifoPos >= _dataBuf.Length) _dataReady = false;
     }
 
+    public void LoadSectorToFifo(byte[] data)
+    {
+        _dataBuf = (byte[])data.Clone();
+        _dataFifoPos = 0;
+        _dataReady = true;
+    }
+
     private void SetInInterrupt(ushort val)
     {
         if (BiosB.IntrEnvInInterruptAddr != 0)

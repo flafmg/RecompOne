@@ -277,7 +277,7 @@ public static class InstructionEmitter
         if (op == 0 && fn == 8)
         {
             Ds();
-            if (rs == 31) sb.AppendLine($"{indent}return;");
+            if (rs == 31 || ctx.RaReturnJrs.Contains(pc)) sb.AppendLine($"{indent}return;");
             else if (ctx.JumpTablesByJr.TryGetValue(pc, out var jtbl))
             {
                 sb.AppendLine($"{indent}switch ({RS})");
@@ -319,6 +319,7 @@ public sealed class FunctionContext
     public HashSet<uint> Labels = [];
     public bool Debug;
     public Dictionary<uint, JumpTable> JumpTablesByJr = [];
+    public HashSet<uint> RaReturnJrs = [];
 }
 
 

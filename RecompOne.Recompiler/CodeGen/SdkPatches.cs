@@ -2,12 +2,7 @@ using RecompOne.Recompiler.Analysis;
 
 namespace RecompOne.Recompiler.CodeGen;
 
-/*
- * the automatic patches for psyq stuff, based on psyz code (thanks :3c), it will not reimplement everything since most of it works under recompilation
- * right now its just libcd and libst because they are having a lot of problems to run under recompilation
- *
- * vsync is patched to dispatch the interrupts callbacks, this is probably NOT an ideal aproach but its the only one i could think of, TODO: find a better aproach of dispatching irqs
- */
+
 public static class SdkPatches
 {
     static readonly (string Class, string[] Names)[] Libraries =
@@ -28,6 +23,13 @@ public static class SdkPatches
         {
             "StSetRing", "StClearRing", "StUnSetRing", "StSetStream",
             "StSetMask", "StGetNext", "StFreeRing", "StGetBackloc",
+        }),
+        ("RecompOne.Runtime.Sdk.LibPad", new[]
+        {
+            "PadInitDirect", "PadStartCom", "PadStopCom", "PadEnableCom",
+            "PadChkVsync", "PadChkMtap", "PadGetState", "PadInfoMode",
+            "PadInfoAct", "PadInfoComb", "PadSetMainMode", "PadSetActAlign",
+            "PadSetAct",
         }),
 
     };

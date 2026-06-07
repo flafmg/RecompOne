@@ -10,46 +10,65 @@ public static class LibCdStream
     const int SlotData = 2016;
     const ushort VideoMagic = 0x0160;
 
+    public static bool InUse { get; private set; }
     static uint _statusBase;
     static int _slots;
     static uint _dataBase;
-    static int _readIdx;
-    static int _streamLba;
-    static bool _active;
-    
-    static readonly Stopwatch _clock = new();
+
+    static volatile bool _active;
+    static volatile bool _reading;
+    static int _pendingLba = -1;
+    static int _streamLba = -1;
     static int _streamStartLba;
+    static readonly Stopwatch _clock = new();
+
+    static int _writeIdx;
+    static bool[] _busy = System.Array.Empty<bool>();
+    static readonly Queue<(int start, int n)> _ready = new();
+    static int _prevStart = -1, _prevN;
+
+    static Thread? _thread;
+    static volatile bool _run;
+    static readonly object _lock = new();
 
     public static void StSetRing(CpuContext c, IMemory m)
     {
-        _statusBase = c.A0;
-        _slots = (int)c.A1;
-        _dataBase = _statusBase + (uint)(_slots * HeaderSize);
-        _readIdx = 0;
-        ClearStatuses(m);
+        InUse = true;
+        lock (_lock)
+        {
+            _statusBase = c.A0;
+            _slots = (int)c.A1;
+            _dataBase = _statusBase + (uint)(_slots * HeaderSize);
+            ResetRing(m);
+        }
+        EnsureThread();
         Log.Sdk($"StSetRing base=0x{_statusBase:X8} slots={_slots} data=0x{_dataBase:X8}");
     }
 
     public static void StClearRing(CpuContext c, IMemory m)
     {
-        _readIdx = 0;
-        ClearStatuses(m);
+        lock (_lock) ResetRing(m);
         c.V0 = 0;
         Log.Sdk("StClearRing");
     }
 
     public static void StUnSetRing(CpuContext c, IMemory m)
     {
-        _active = false; 
+        _active = false;
+        _reading = false;
         Log.Sdk("StUnSetRing");
     }
 
     public static void StSetStream(CpuContext c, IMemory m)
     {
+        lock (_lock)
+        {
+            _streamLba = -1;
+            ResetRing(m);
+            XaAudio.Reset();
+        }
         _active = true;
-        _readIdx = 0;
-        _streamLba = -1;
-        XaAudio.Reset();
+        EnsureThread();
         Log.Sdk("StSetStream");
     }
 
@@ -57,66 +76,141 @@ public static class LibCdStream
 
     public static void StGetNext(CpuContext c, IMemory m)
     {
-        if (!_active || Runtime.Cd == null) { c.V0 = 1; return; }
-        if (_streamLba < 0) { _streamLba = LibCd.CurrentLba; _streamStartLba = _streamLba; _clock.Restart(); }
-        
-        byte[] first;
-        int guard = 0;
-        while (true)
+        if (!_active) { c.V0 = 1; return; }
+
+        lock (_lock)
         {
-            first = Runtime.Cd.ReadSectorData(_streamLba, 2336);
-            if ((first[2] & 0x04) != 0) { XaAudio.DecodeSector(first, 8, first[3]); _streamLba++; if (++guard > 8192) { c.V0 = 1; return; } continue; }
-            if (Read16(first, 8) == VideoMagic && Read16(first, 12) == 0) break;
-            _streamLba++;
-            if (++guard > 8192) { Log.Sdk($"StGetNext there no frame start near lba={_streamLba}"); c.V0 = 1; return; }
+            if (_prevStart >= 0)
+            {
+                for (int i = 0; i < _prevN; i++) _busy[_prevStart + i] = false;
+                _prevStart = -1;
+            }
+
+            if (_ready.Count == 0) { c.V0 = 1; return; }
+
+            var (start, n) = _ready.Dequeue();
+            uint dataPtr = _dataBase + (uint)(start * SlotData);
+            uint hdrPtr = _statusBase + (uint)(start * HeaderSize);
+            m.WriteU32(c.A0, dataPtr);
+            m.WriteU32(c.A1, hdrPtr);
+            _prevStart = start;
+            _prevN = n;
+            c.V0 = 0;
         }
-
-        int n = Read16(first, 14);
-        if (n <= 0 || n > _slots) { c.V0 = 1; return; }
-
-        double delivered = _clock.Elapsed.TotalSeconds * LibCd.SectorsPerSecond; //cd pacer
-        int needed = (_streamLba - _streamStartLba) + n;
-        if (needed > delivered) { c.V0 = 1; return; }
-
-        Log.Sdk($"StGetNext lba={_streamLba} chunks={n} frame#={Read32(first, 16)} readIdx={_readIdx} delivered={delivered:F0}");
-        if (_readIdx + n > _slots) _readIdx = 0;
-
-        int collected = 0;
-        uint lba = (uint)_streamLba;
-        while (collected < n)
-        {
-            byte[] sec = Runtime.Cd.ReadSectorData((int)lba, 2336);
-            lba++;
-            if ((sec[2] & 0x04) != 0) { XaAudio.DecodeSector(sec, 8, sec[3]); continue; }
-            if (Read16(sec, 8) != VideoMagic) continue;
-            uint hdr = _statusBase + (uint)((_readIdx + collected) * HeaderSize);
-            uint dat = _dataBase + (uint)((_readIdx + collected) * SlotData);
-            for (int j = 0; j < HeaderSize; j++) m.WriteU8(hdr + (uint)j, sec[8 + j]);
-            for (int j = 0; j < SlotData; j++) m.WriteU8(dat + (uint)j, sec[8 + HeaderSize + j]);
-            collected++;
-        }
-        _streamLba = (int)lba;
-
-        uint dataPtr = _dataBase + (uint)(_readIdx * SlotData);
-        uint hdrPtr = _statusBase + (uint)(_readIdx * HeaderSize);
-        m.WriteU32(c.A0, dataPtr);
-        m.WriteU32(c.A1, hdrPtr);
-        Log.Sdk($"StGetNext ready data=0x{dataPtr:X8} hdr=0x{hdrPtr:X8} w={Read16(first, 0x18)} h={Read16(first, 0x1A)}");
-
-        _readIdx += n;
-        c.V0 = 0;
     }
-
-    static uint Read32(byte[] b, int o) => (uint)(b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24));
 
     public static void StFreeRing(CpuContext c, IMemory m) { c.V0 = 0; Log.Sdk("StFreeRing"); }
 
     public static void StGetBackloc(CpuContext c, IMemory m) { c.V0 = 0xFFFFFFFFu; Log.Sdk("StGetBackloc"); }
 
-    static void ClearStatuses(IMemory m)
+    internal static void OnReadStream(int lba)
     {
+        if (!InUse) return;
+        _pendingLba = lba;
+        _reading = true;
+        EnsureThread();
+    }
+
+    internal static void OnStopStream()
+    {
+        _reading = false;
+    }
+
+    static void ResetRing(IMemory m)
+    {
+        _writeIdx = 0;
+        _prevStart = -1;
+        _prevN = 0;
+        _ready.Clear();
+        _busy = _slots > 0 ? new bool[_slots] : System.Array.Empty<bool>();
         for (int i = 0; i < _slots; i++)
             m.WriteU16(_statusBase + (uint)(i * HeaderSize), 0);
+    }
+
+    static void EnsureThread()
+    {
+        if (_thread is { IsAlive: true }) return;
+        _run = true;
+        _thread = new Thread(StreamLoop) { IsBackground = true, Name = "CdStream" };
+        _thread.Start();
+    }
+
+    static void StreamLoop()
+    {
+        while (_run)
+        {
+            var cd = Runtime.Cd;
+            var m = Runtime.Mem;
+            if (cd == null || m == null || !_active || !_reading || _slots <= 0)
+            {
+                Thread.Sleep(2);
+                continue;
+            }
+
+            if (_streamLba < 0)
+            {
+                _streamLba = _pendingLba >= 0 ? _pendingLba : LibCd.CurrentLba;
+                _streamStartLba = _streamLba;
+                _clock.Restart();
+            }
+
+            byte[] sec;
+            try { lock (LibCd.DiscLock) sec = cd.ReadSectorData(_streamLba, 2336); }
+            catch { Thread.Sleep(2); continue; }
+
+            if ((sec[2] & 0x04) != 0) { XaAudio.DecodeSector(sec, 8, sec[3]); _streamLba++; continue; }
+            if (Read16(sec, 8) != VideoMagic || Read16(sec, 12) != 0) { _streamLba++; continue; }
+
+            int n = Read16(sec, 14);
+            if (n <= 0 || n > _slots) { _streamLba++; continue; }
+
+            double delivered = _clock.Elapsed.TotalSeconds * LibCd.SectorsPerSecond;
+            if ((_streamLba - _streamStartLba) + n > delivered) { Thread.Sleep(1); continue; }
+
+            int start;
+            lock (_lock)
+            {
+                if (_writeIdx + n > _slots) _writeIdx = 0;
+                start = _writeIdx;
+                bool free = true;
+                for (int i = 0; i < n; i++) if (_busy[start + i]) { free = false; break; }
+                if (!free) { Thread.Sleep(1); continue; }
+            }
+
+            if (!CollectFrame(cd, m, start, n)) continue;
+
+            lock (_lock)
+            {
+                for (int i = 0; i < n; i++) _busy[start + i] = true;
+                _ready.Enqueue((start, n));
+                _writeIdx = start + n;
+            }
+        }
+    }
+
+    static bool CollectFrame(Cdrom.CdController cd, IMemory m, int start, int n)
+    {
+        int collected = 0;
+        int lba = _streamLba;
+        while (collected < n)
+        {
+            byte[] sec;
+            try { lock (LibCd.DiscLock) sec = cd.ReadSectorData(lba, 2336); }
+            catch { return false; }
+            lba++;
+
+            if ((sec[2] & 0x04) != 0) { XaAudio.DecodeSector(sec, 8, sec[3]); continue; }
+            if (Read16(sec, 8) != VideoMagic) continue;
+
+            uint hdr = _statusBase + (uint)((start + collected) * HeaderSize);
+            uint dat = _dataBase + (uint)((start + collected) * SlotData);
+            for (int j = 0; j < HeaderSize; j++) m.WriteU8(hdr + (uint)j, sec[8 + j]);
+            for (int j = 0; j < SlotData; j++) m.WriteU8(dat + (uint)j, sec[8 + HeaderSize + j]);
+            collected++;
+        }
+        _streamLba = lba;
+        Thread.MemoryBarrier();
+        return true;
     }
 
     static ushort Read16(byte[] b, int o) => (ushort)(b[o] | (b[o + 1] << 8));

@@ -3,7 +3,6 @@ using RecompOne.Recompiler.Psx;
 
 namespace RecompOne.Recompiler.CodeGen;
 
-//TODO: add game config to specify cd path and other configuration(pad etc) instead of by argument or hardcoded
 public static class EntryWriter
 {
     public static void Write(PsxExe exe, string bootExe, string className, string? mainCall, List<string> overlays, string outDir)
@@ -19,10 +18,10 @@ public static class EntryWriter
         entry.AppendLine();
         entry.AppendLine("public static class Entry");
         entry.AppendLine("{");
-        entry.AppendLine("    public static void Run(string cuePath, IMemory m)");
+        entry.AppendLine("    public static void Run(IMemory m, string? cuePath = null)");
         entry.AppendLine("    {");
         entry.AppendLine($"        RecompOne.Runtime.Runtime.Initialize(\"{className}\");");
-        entry.AppendLine("        using var fs = CueFs.Open(cuePath);");
+        entry.AppendLine("        using var fs = CueFs.Open(cuePath ?? RecompOne.Runtime.Runtime.CdPath);");
         entry.AppendLine("        var cd = new CdController(fs, m);");
         entry.AppendLine("        m.SetCd(cd);");
         foreach (var name in overlays)
@@ -58,14 +57,8 @@ public static class EntryWriter
         program.AppendLine("using RecompOne.Runtime.Memory;");
         program.AppendLine("using Recompiled;");
         program.AppendLine();
-        program.AppendLine("if (args.Length == 0)");
-        program.AppendLine("{");
-        program.AppendLine("    Console.Error.WriteLine(\"Usage: <game> <disc.cue>\");");
-        program.AppendLine("    return 1;");
-        program.AppendLine("}");
-        program.AppendLine();
         program.AppendLine("var m = new PSMemory();");
-        program.AppendLine("Entry.Run(args[0], m);");
+        program.AppendLine("Entry.Run(m, args.Length > 0 ? args[0] : null);");
         program.AppendLine("return 0;");
 
         File.WriteAllText(Path.Combine(outDir, "Entry.cs"),   entry.ToString());

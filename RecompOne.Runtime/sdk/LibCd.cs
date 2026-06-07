@@ -25,6 +25,7 @@ public static class LibCd
     const int DataReady = 0x01;
     const byte ModeSize1 = 0x20, ModeSize0 = 0x10;
 
+    const byte StatMotor = 0x02;
     static byte _status;
     static byte _mode;
     static byte _com;
@@ -40,6 +41,8 @@ public static class LibCd
     static bool _xaActive;
     static byte _filterFile;
     static byte _filterChannel;
+
+    internal static readonly object DiscLock = new();
 
     static readonly bool[] NeedsLoc = BuildNeedsLoc();
 
@@ -92,7 +95,8 @@ public static class LibCd
 
         for (int i = 0; i < sectors; i++)
         {
-            var data = Runtime.Cd!.ReadSectorData(lba + i, size);
+            byte[] data;
+            lock (DiscLock) data = Runtime.Cd!.ReadSectorData(lba + i, size);
             for (int j = 0; j < data.Length; j++)
                 m.WriteU8(buf + (uint)(i * size + j), data[j]);
         }
@@ -107,7 +111,7 @@ public static class LibCd
     {
         bool xaMode = (_mode & 0x40) != 0;
 
-        if (_xaActive || (_readActive && xaMode && _cbData == 0))
+        if (_readActive && xaMode && _cbData == 0)
         {
             PumpXa();
             return;
@@ -132,7 +136,7 @@ public static class LibCd
     static void PumpXa()
     {
         if (Runtime.Cd == null) return;
-        const int MinBuffer = 2016; // 1 stereo XA sector worth of samples
+        const int MinBuffer = 2016;
         const int MaxScan = 32;
         bool useFilter = (_mode & 0x08) != 0;
         int scanned = 0;
@@ -141,10 +145,11 @@ public static class LibCd
         {
             int lba = PosToInt(_pos);
             if (lba < 0) break;
-            var sec = Runtime.Cd.ReadSectorData(lba, 2336);
+            byte[] sec;
+            lock (DiscLock) sec = Runtime.Cd.ReadSectorData(lba, 2336);
             AdvancePos(1);
             scanned++;
-            if ((sec[2] & 0x04) == 0) continue; // not an audio sector
+            if ((sec[2] & 0x04) == 0) continue;
             if (useFilter && (sec[0] != _filterFile || sec[1] != _filterChannel)) continue;
             XaAudio.DecodeSector(sec, 8, sec[3]);
         }
@@ -166,7 +171,8 @@ public static class LibCd
         uint madr = c.A0;
         int words = (int)c.A1;
         int lba = PosToInt(_pos);
-        var data = Runtime.Cd!.ReadSectorData(lba);
+        byte[] data;
+        lock (DiscLock) data = Runtime.Cd!.ReadSectorData(lba);
         int bytes = Math.Min(data.Length, words * 4);
         for (int j = 0; j < bytes; j++)
             m.WriteU8(madr + (uint)j, data[j]);
@@ -218,7 +224,8 @@ public static class LibCd
 
     static void CdResetState()
     {
-        _status = 0;
+        LibCdStream.OnStopStream();
+        _status = StatMotor; //drive aways spin
         _mode = 0;
         _com = 0;
         _lastIntr = Complete;
@@ -269,12 +276,14 @@ public static class LibCd
             case ReadS:
                 _xaActive = true;
                 _readActive = false;
+                LibCdStream.OnReadStream(PosToInt(_pos));
                 break;
-            case Pause: case Stop:
+            case Pause: case Stop: case Init:
+                LibCdStream.OnStopStream();
                 _readActive = false;
                 _xaActive = false;
                 break;
-            case Nop: case Play: case Init: case Mute:
+            case Nop: case Play: case Mute:
             case Demute: case SeekL: case SeekP:
                 break;
             default:
