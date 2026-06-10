@@ -1,5 +1,10 @@
 # RecompOne
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/6d9a8f86-322c-4cd2-a3d3-ba68ba2d37e9" alt="logo" width="400">
+</p>
+
+
 RecompOne is a tool to statically recompile PlayStation 1 executables into C# code. it also provides a runtime layer that translates the PS1 hardware environment into something modern PCs can run natively
 
 This project is inspired by [N64Recomp](https://github.com/N64Recomp/N64Recomp) and [XenonRecomp](https://github.com/hedge-dev/XenonRecomp), which are similar tools for N64 and Xbox 360 respectively
