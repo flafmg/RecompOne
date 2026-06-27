@@ -8,6 +8,11 @@
     </PropertyGroup>
 
     <ItemGroup>
+      <EmbeddedResource Include="Bios\Fonts\font1.raw" />
+      <EmbeddedResource Include="Bios\Fonts\font2.raw" />
+    </ItemGroup>
+
+    <ItemGroup>
       <PackageReference Include="Silk.NET" Version="2.22.0" />
       <PackageReference Include="Silk.NET.OpenGL.Extensions.ImGui" Version="2.22.0" />
       <PackageReference Include="Silk.NET.SDL" Version="2.23.0" />

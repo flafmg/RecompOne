@@ -173,8 +173,8 @@ public static class BiosB
             case 0x4E: CardWrite(c, m); break;
             case 0x4F: CardRead(c, m); break;
             case 0x50: break;
-            case 0x51: c.V0 = 0u; break;
-            case 0x53: c.V0 = 0u; break;
+            case 0x51: c.V0 = KromFont.Krom2RawAdd(c.A0); break;
+            case 0x53: c.V0 = KromFont.Krom2Offset(c.A0); break;
             case 0x54: c.V0 = BiosA.LastErrno; break;
             case 0x55: c.V0 = 0u; break;
             case 0x56: c.V0 = 0u; break;

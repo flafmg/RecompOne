@@ -8,6 +8,7 @@ public sealed class PSMemory : IMemory
     private readonly byte[] _ram = new byte[Runtime.Mode == RunMode.Devkit ? MemoryMap.DevkitRamSize : MemoryMap.RetailRamSize];
     private readonly byte[] _scratchpad = new byte[MemoryMap.ScratchpadSize];
     private readonly byte[] _hwregs = new byte[MemoryMap.HwRegsSize];
+    private readonly byte[] _bios = new byte[MemoryMap.BiosSize];
 
     private readonly Gpu _gpu = new();
     private readonly Spu _spu = new();
@@ -24,6 +25,7 @@ public sealed class PSMemory : IMemory
         _dma = new Dma(this, _gpu, _spu, _mdec, () => Runtime.DispatchIrq(3));
         Runtime.Gpu = _gpu;
         Runtime.Spu = _spu;
+        Bios.KromFont.InstallInto(_bios);
     }
 
     public void SetCd(CdController cd) { _cd = cd; _dma.SetCd(cd); }
@@ -63,6 +65,9 @@ public sealed class PSMemory : IMemory
 
         if (phys >= MemoryMap.HwRegsBase && phys < MemoryMap.HwRegsBase + MemoryMap.HwRegsSize)
             return _hwregs.AsSpan((int)(phys - MemoryMap.HwRegsBase), size);
+
+        if (phys >= MemoryMap.BiosBase && phys < MemoryMap.BiosBase + MemoryMap.BiosSize)
+            return _bios.AsSpan((int)(phys - MemoryMap.BiosBase), size);
 
         throw new InvalidOperationException($"unmapped address: 0x{address:X8}");
     }
