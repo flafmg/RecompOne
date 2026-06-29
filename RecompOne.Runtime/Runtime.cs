@@ -29,6 +29,8 @@ public static class Runtime
         Audio.Initialize();
     }
 
+    public static void WaitForValidDisc() => HostWindow.WaitForValidDisc();
+
     public static void SetContext(CpuContext c, IMemory m)
     {
         Cpu = c;

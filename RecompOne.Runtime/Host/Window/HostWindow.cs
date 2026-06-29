@@ -22,6 +22,7 @@ internal static class HostWindow
     static uint _displayTex;
     static uint _vramTex;
     static uint _ramTex;
+    static Hle.GlBackend? _glBackend;
 
     static byte[] _rgbDisplay = [];
     static byte[] _rgbVram = [];
@@ -33,6 +34,7 @@ internal static class HostWindow
 
     static bool _layoutPending = true;
     static bool _closed;
+    static DiscPickerPopup? _discPicker;
 
     public static void Initialize(string title)
     {
@@ -57,7 +59,7 @@ internal static class HostWindow
         }
         catch (Exception e)
         {
-            Console.Error.WriteLine($"[Host] window unavailable, running headless: {e.Message}");
+            Console.Error.WriteLine($"[Host] window unavailable {e.Message}");
             _headless = true;
         }
     }
@@ -101,6 +103,23 @@ internal static class HostWindow
 
     public static bool IsKeyDown(Key k) => InputManager.IsKeyDown(k);
 
+    public static void RequestDiscPath() => _discPicker?.Show();
+
+    public static void WaitForValidDisc() // wait for disc path to be valid before running it!!
+    {
+        if (_headless || _window == null) return;
+        while (true)
+        {
+            var path = ConfigManager.Game.CdPath;
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path)) return;
+
+            try { _window.DoEvents(); } catch { }
+            if (_window.IsClosing) { Runtime.Shutdown(); Environment.Exit(0); }
+            InputManager.Poll();
+            _window.DoRender();
+        }
+    }
+
     static void OnLoad()
     {
         var input = _window!.CreateInput();
@@ -116,6 +135,11 @@ internal static class HostWindow
         _vramTex= CreateTexture(_gl);
         _ramTex = CreateTexture(_gl);
 
+        _glBackend = new Hle.GlBackend(_gl);
+        _glBackend.InitGl();
+        Hle.GpuHle.Active = _glBackend.Ready;
+        Hle.GpuHle.Backend = _glBackend;
+
         _imgui = new ImGuiController(_gl, _window, input, null, ConfigureImGui);
 
         PanelManager.Register(new OutputPanel());
@@ -128,7 +152,14 @@ internal static class HostWindow
         PanelManager.Register(new ConfigPanel());
         PanelManager.Register(new AboutPopup());
 
+        _discPicker = new DiscPickerPopup();
+        PanelManager.Register(_discPicker);
+
         ConfigManager.ApplyViewToPanels(PanelManager.Panels);
+
+        var cdPath = ConfigManager.Game.CdPath;
+        if (string.IsNullOrWhiteSpace(cdPath) || !File.Exists(cdPath))
+            _discPicker.Show();
     }
 
     static void ConfigureImGui()
@@ -146,6 +177,11 @@ internal static class HostWindow
     {
         var gl = _gl!;
         _imgui!.Update((float)dt);
+    
+        gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+        var fbDef = _window!.FramebufferSize;
+        gl.Viewport(0, 0, (uint)fbDef.X, (uint)fbDef.Y);
+        gl.ClearColor(0.08f, 0.08f, 0.08f, 1f);
         gl.Clear(ClearBufferMask.ColorBufferBit);
 
         Runtime.RamLog.Tick();
@@ -153,7 +189,24 @@ internal static class HostWindow
         var gpu = _gpu;
         if (gpu != null)
         {
-            UploadDisplayTexture(gl, gpu);
+
+            if (Hle.GpuHle.Active && _glBackend is { Ready: true } && gpu.DisplayEnabled)
+            {
+                var wf = _window!.FramebufferSize;
+                var (tex, tw, th) = _glBackend.PresentDisplay(
+                    gpu.DisplayX, gpu.DisplayY,
+                    gpu.DisplayWidth, gpu.DisplayHeight,
+                    gpu.Display24Bit,
+                    outW: wf.X, outH: wf.Y);
+                if (tex != 0) OutputPanel.SetTexture(tex, tw, th);
+                gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                gl.Viewport(0, 0, (uint)wf.X, (uint)wf.Y);
+            }
+            else
+            {
+                UploadDisplayTexture(gl, gpu);
+            }
+
             if (PanelManager.Get<VramViewerPanel>()?.IsOpen == true)
                 UploadVramTexture(gl, gpu);
         }
@@ -169,7 +222,8 @@ internal static class HostWindow
 
         DrawDockspace();
         PanelManager.DrawPanels();
-
+        gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+        gl.Viewport(0, 0, (uint)fbDef.X, (uint)fbDef.Y);
         _imgui.Render();
     }
 
@@ -214,6 +268,7 @@ internal static class HostWindow
         ConfigManager.SaveView(PanelManager.Panels);
         ConfigManager.SaveGame();
         PanelManager.Shutdown();
+        _glBackend?.Dispose();
         _imgui?.Dispose();
         _gl?.DeleteTexture(_displayTex);
         _gl?.DeleteTexture(_vramTex);
@@ -244,11 +299,19 @@ internal static class HostWindow
         OutputPanel.SetTexture(_displayTex, w, h);
     }
 
+    static ushort[] _vramView = new ushort[Gpu.VramWidth * Gpu.VramHeight];
     static void UploadVramTexture(GL gl, Gpu gpu)
     {
         const int sz = Gpu.VramWidth * Gpu.VramHeight * 3;
         if (_rgbVram.Length < sz) _rgbVram = new byte[sz];
-        ConvertVramToBuffer(gpu.Vram, _rgbVram);
+        ushort[] src;
+        if (Hle.GpuHle.Active && _glBackend is { Ready: true })
+        {
+            _glBackend.ReadVram(0, 0, Gpu.VramWidth, Gpu.VramHeight, _vramView);
+            src = _vramView;
+        }
+        else src = gpu.Vram;
+        ConvertVramToBuffer(src, _rgbVram);
         gl.BindTexture(TextureTarget.Texture2D, _vramTex);
         gl.TexImage2D<byte>(TextureTarget.Texture2D, 0, InternalFormat.Rgb, Gpu.VramWidth, Gpu.VramHeight, 0, PixelFormat.Rgb, PixelType.UnsignedByte, _rgbVram.AsSpan(0, sz));
         VramViewerPanel.SetTexture(_vramTex, Gpu.VramWidth, Gpu.VramHeight);

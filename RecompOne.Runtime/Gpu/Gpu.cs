@@ -1,12 +1,16 @@
+using RecompOne.Runtime.Hle;
+
 namespace RecompOne.Runtime;
 
-//ToDO: HLE gpu
+//ToDO: HW Renderer must use a separate "view" quad text so widescren patches are possible
+// or find a betrter approach, maybe allongate the vram as needed? a dufferent tex seens more ideal?
 public sealed partial class Gpu
 {
-    public const int VramWidth = 1024;
-    public const int VramHeight = 512;
+    public const int VramWidth = VramShadow.Width;
+    public const int VramHeight = VramShadow.Height;
 
-    public readonly ushort[] Vram = new ushort[VramWidth * VramHeight];
+    public readonly VramShadow Shadow = new();
+    public ushort[] Vram => Shadow.Pixels;
 
     int _drawAreaLeft, _drawAreaTop, _drawAreaRight = VramWidth - 1, _drawAreaBottom = VramHeight - 1;
     int _drawOffsetX, _drawOffsetY;

@@ -1,5 +1,6 @@
 namespace RecompOne.Runtime;
 
+//old soft raster
 public sealed partial class Gpu
 {
     struct Vert { public int X, Y, R, G, B, U, V; }
@@ -50,8 +51,16 @@ public sealed partial class Gpu
             }
         }
 
-        RasterTriangle(v[0], v[1], v[2], tex, gouraud, semi, raw, clut);
-        if (quad) RasterTriangle(v[1], v[2], v[3], tex, gouraud, semi, raw, clut);
+        if (HleOn)
+        {
+            HleTri(v[0], v[1], v[2], tex, semi, raw, clut);
+            if (quad) HleTri(v[1], v[2], v[3], tex, semi, raw, clut);
+        }
+        else
+        {
+            RasterTriangle(v[0], v[1], v[2], tex, gouraud, semi, raw, clut);
+            if (quad) RasterTriangle(v[1], v[2], v[3], tex, gouraud, semi, raw, clut);
+        }
     }
 
     void RasterTriangle(Vert a, Vert b, Vert c, bool tex, bool gouraud, bool semi, bool raw, int clut)
@@ -147,6 +156,8 @@ public sealed partial class Gpu
         if (sz == 0) { uint wh = _fifo[idx]; w = (int)(wh & 0xFFFF); h = (int)((wh >> 16) & 0xFFFF); }
         else { w = h = sz == 1 ? 1 : sz == 2 ? 8 : 16; }
 
+        if (HleOn) { HleRect(x, y, w, h, u0, v0, clut, cr, cg, cb, tex, semi, raw); return; }
+
         for (int dy = 0; dy < h; dy++)
             for (int dx = 0; dx < w; dx++)
             {
@@ -209,6 +220,7 @@ public sealed partial class Gpu
     {
         x0 += _drawOffsetX; y0 += _drawOffsetY;
         x1 += _drawOffsetX; y1 += _drawOffsetY;
+        if (HleOn) { HleLine(x0, y0, r0, g0, b0, x1, y1, r1, g1, b1, semi); return; }
         int dx = Math.Abs(x1 - x0), dy = Math.Abs(y1 - y0);
         int steps = Math.Max(dx, dy);
         if (steps == 0) { Plot(x0, y0, r0, g0, b0, semi, _dither); return; }

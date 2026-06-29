@@ -19,6 +19,10 @@ public static class SdkPatches
         {
             "VSync",
         }),
+        ("RecompOne.Runtime.Sdk.LibGpu", new[]
+        {
+            "DrawOTag", "DrawSync",
+        }),
         ("RecompOne.Runtime.Sdk.LibCdStream", new[]
         {
             "StSetRing", "StClearRing", "StUnSetRing", "StSetStream",

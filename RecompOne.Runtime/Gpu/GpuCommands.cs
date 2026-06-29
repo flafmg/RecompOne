@@ -87,6 +87,8 @@ public sealed partial class Gpu
         int y = (int)((_fifo[1] >> 16) & 0x1FF);
         int w = (int)(((_fifo[2] & 0x3FF) + 0xF) & ~0xF);
         int h = (int)((_fifo[2] >> 16) & 0x1FF);
+        if (HleOn) { HleFill(x, y, w, h, color); return; }
+
         for (int dy = 0; dy < h; dy++)
             for (int dx = 0; dx < w; dx++)
             {
@@ -102,6 +104,7 @@ public sealed partial class Gpu
         int dx = (int)(_fifo[2] & 0x3FF), dy = (int)((_fifo[2] >> 16) & 0x1FF);
         int w = (int)(_fifo[3] & 0x3FF); if (w == 0) w = 0x400;
         int h = (int)((_fifo[3] >> 16) & 0x1FF); if (h == 0) h = 0x200;
+        if (HleOn) { HleCopy(sx, sy, dx, dy, w, h); return; }
         for (int row = 0; row < h; row++)
             for (int col = 0; col < w; col++)
             {
@@ -122,18 +125,24 @@ public sealed partial class Gpu
         _loadH = (int)((_fifo[2] >> 16) & 0xFFFF); if (_loadH == 0) _loadH = 0x200; else _loadH &= 0x1FF; if (_loadH == 0) _loadH = 0x200;
         _loadPx = 0;
         _loadImage = true;
+        HleLoadBegin();
         _fifo.Clear();
     }
 
     void StoreImageHalfword(ushort value)
     {
         if (!_loadImage) return;
-        int x = (_loadX + (_loadPx % _loadW)) & (VramWidth - 1);
-        int y = (_loadY + (_loadPx / _loadW)) & (VramHeight - 1);
-        int idx = y * VramWidth + x;
-        if (!(_checkMask && (Vram[idx] & 0x8000) != 0))
-            Vram[idx] = _setMask ? (ushort)(value | 0x8000) : value;
-        if (++_loadPx >= _loadW * _loadH) _loadImage = false;
+        ushort stored = _setMask ? (ushort)(value | 0x8000) : value;
+        if (!HleOn)   // gl mode uploads to gl vram via HleLoadPut
+        {
+            int x = (_loadX + (_loadPx % _loadW)) & (VramWidth - 1);
+            int y = (_loadY + (_loadPx / _loadW)) & (VramHeight - 1);
+            int idx = y * VramWidth + x;
+            if (!(_checkMask && (Vram[idx] & 0x8000) != 0))
+                Vram[idx] = stored;
+        }
+        HleLoadPut(stored);
+        if (++_loadPx >= _loadW * _loadH) { _loadImage = false; HleLoadFlush(); }
     }
 
     void BeginImageRead()
@@ -144,14 +153,21 @@ public sealed partial class Gpu
         _readH = (int)((_fifo[2] >> 16) & 0x1FF); if (_readH == 0) _readH = 0x200;
         _readPx = 0;
         _readImage = true;
+        if (HleOn) HleReadback(_readX, _readY, _readW, _readH);
     }
 
     ushort ReadImageHalfword()
     {
         if (!_readImage) return 0;
-        int x = (_readX + (_readPx % _readW)) & (VramWidth - 1);
-        int y = (_readY + (_readPx / _readW)) & (VramHeight - 1);
-        ushort v = Vram[y * VramWidth + x];
+        ushort v;
+        if (HleOn)
+            v = _readPx < _readBuf.Length ? _readBuf[_readPx] : (ushort)0;
+        else
+        {
+            int x = (_readX + (_readPx % _readW)) & (VramWidth - 1);
+            int y = (_readY + (_readPx / _readW)) & (VramHeight - 1);
+            v = Vram[y * VramWidth + x];
+        }
         if (++_readPx >= _readW * _readH) _readImage = false;
         return v;
     }
