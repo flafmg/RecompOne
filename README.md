@@ -33,7 +33,7 @@ becomes:
 c.T0 = mem.Read32(c.SP + 0x10u);
 ```
 
-the runtime, like an emulator, simulates the behaviour the game expects like the BIOS functions, MMIO registers, GPU drawing commands, CD-ROM, and so on, it also provides reimplementation of some libraries from psyq, since the ones that heavily rely on interrupts dont work properly under the recompiler
+the runtime, like an emulator, simulates the behaviour the game expects like the BIOS functions, MMIO, GPU drawing commands, CD-ROM, and so on, it also provides reimplementation of some libraries from psyq, since the ones that heavily rely on interrupts dont work properly under the recompiler
 
 ## Overlays
 
@@ -68,8 +68,6 @@ The recompiler reads the disc image provided in the configuration file, gets the
 ## TODO
 
 - [ ] **Mod loader** an proper runtime modding system that patch assemblies from a `mods/` directory without recompiling
-- [ ] **Documentation** better documentation
-- [ ] **HLE GPU** current implementation is LLE, an HLE GPU is planned so widescreen patches and increased resolution can be possible 
 - [ ] **MultiDisc games** current implementation doesnt deal with games that have multiple discs (should be an relatively easy implementation)
 
 ## Contributing
