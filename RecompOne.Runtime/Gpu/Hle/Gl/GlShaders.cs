@@ -117,7 +117,7 @@ internal static class GlShaders
         vec4 modulate(vec4 tex, vec4 col) { vec4 r = (tex * col) / (128.0 / 255.0); r.a = 1.0; return r; }
 
         void main() {
-            if (uCheckMask != 0 && fetch(ivec2(gl_FragCoord.xy / float(uScale))).a >= 0.5) discard;
+            if (uCheckMask != 0 && texelFetch(uVram, ivec2(gl_FragCoord.xy), 0).a >= 0.5) discard;
 
             if (texMode == 4) {
                 FragColor = vec4(vColor.rgb, uSetMask);

@@ -64,7 +64,9 @@ public static class EntryWriter
 
         File.WriteAllText(Path.Combine(outDir, "Entry.cs"),   entry.ToString());
         File.WriteAllText(Path.Combine(outDir, "Stubs.cs"),   stubs.ToString());
-        File.WriteAllText(Path.Combine(outDir, "Program.cs"), program.ToString());
+        var programPath = Path.Combine(outDir, "Program.cs");
+        if (!File.Exists(programPath))
+            File.WriteAllText(programPath, program.ToString());
     }
 
     static string DispatchTableName(string name) => $"{char.ToUpperInvariant(name[0])}{name[1..]}DispatchTable";

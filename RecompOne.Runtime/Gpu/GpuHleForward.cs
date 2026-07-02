@@ -28,6 +28,10 @@ public sealed partial class Gpu
 
     void HleTri(in Vert a, in Vert b, in Vert c, bool tex, bool semi, bool raw, int clut)
     {
+        int spanX = Math.Max(a.X, Math.Max(b.X, c.X)) - Math.Min(a.X, Math.Min(b.X, c.X));
+        int spanY = Math.Max(a.Y, Math.Max(b.Y, c.Y)) - Math.Min(a.Y, Math.Min(b.Y, c.Y));
+        if (spanX > 1023 || spanY > 511) return;
+
         var be = GpuHle.Backend!;
         be.SetDrawEnv(CurEnv());
         be.DrawTri(HV(a), HV(b), HV(c), PrimOf(tex, semi, raw, clut));
@@ -43,6 +47,8 @@ public sealed partial class Gpu
 
     void HleLine(int x0, int y0, int r0, int g0, int b0, int x1, int y1, int r1, int g1, int b1, bool semi)
     {
+        if (Math.Abs(x1 - x0) > 1023 || Math.Abs(y1 - y0) > 511) return;
+
         var be = GpuHle.Backend!;
         be.SetDrawEnv(CurEnv());
         be.DrawLine(
@@ -53,7 +59,7 @@ public sealed partial class Gpu
 
     void HleFill(int x, int y, int w, int h, ushort color) => GpuHle.Backend!.FillRect(x, y, w, h, color);
     void HleCopy(int sx, int sy, int dx, int dy, int w, int h) => GpuHle.Backend!.CopyVram(sx, sy, dx, dy, w, h);
-    
+
     ushort[] _readBuf = Array.Empty<ushort>();
 
     void HleReadback(int x, int y, int w, int h)
@@ -62,6 +68,7 @@ public sealed partial class Gpu
         if (_readBuf.Length < n) _readBuf = new ushort[n];
         GpuHle.Backend!.ReadVram(x, y, w, h, _readBuf);
     }
+
     //img load
     ushort[] _hleLoad = Array.Empty<ushort>();
     bool _hleLoadActive;

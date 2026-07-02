@@ -20,8 +20,10 @@ public sealed class RecompOneConfig
 
 public sealed class PatchEntry
 {
+    [JsonPropertyName("overlay")] public string Overlay { get; set; } = "";
+    [JsonPropertyName("function")] public string Function { get; set; } = "";
     [JsonPropertyName("address")] public string Address { get; set; } = "";
-    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("target")] public string Target { get; set; } = "";
 }
 
 public sealed class GameConfig

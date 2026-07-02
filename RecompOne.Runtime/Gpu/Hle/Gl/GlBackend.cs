@@ -21,12 +21,13 @@ public sealed class GlBackend : IGpuBackend
     int _count;
 
     HleDrawEnv _env;
-    
+
     bool _kTransparent;
     int _kBlend, _kSetMask, _kCheckMask;
     int _kTwAndX, _kTwAndY, _kTwOrX, _kTwOrY;
     int _kClipX0, _kClipY0, _kClipX1, _kClipY1;
-    int _uTexWindow, _uBlend, _uBlendOpaque, _uSetMask, _uCheckMask, _uScale;
+    int _uTexWindow, _uBlend, _uBlendOpaque, _uSetMask, _uCheckMask;
+    int _uPresentOrigin, _uPresentSize, _uPresent24Origin, _uPresent24Size;
 
     public bool Ready { get; private set; }
 
@@ -46,7 +47,21 @@ public sealed class GlBackend : IGpuBackend
         _uBlendOpaque = _gl.GetUniformLocation(_progPrim, "uBlendOpaque");
         _uSetMask = _gl.GetUniformLocation(_progPrim, "uSetMask");
         _uCheckMask = _gl.GetUniformLocation(_progPrim, "uCheckMask");
-        _uScale = _gl.GetUniformLocation(_progPrim, "uScale");
+
+        _gl.UseProgram(_progPrim);
+        _gl.Uniform1(_gl.GetUniformLocation(_progPrim, "uVram"), 0);
+        _gl.Uniform1(_gl.GetUniformLocation(_progPrim, "uScale"), GlVram.Scale);
+
+        _uPresentOrigin = _gl.GetUniformLocation(_progPresent, "uOrigin");
+        _uPresentSize = _gl.GetUniformLocation(_progPresent, "uSize");
+        _gl.UseProgram(_progPresent);
+        _gl.Uniform1(_gl.GetUniformLocation(_progPresent, "uVram"), 0);
+
+        _uPresent24Origin = _gl.GetUniformLocation(_progPresent24, "uOrigin");
+        _uPresent24Size = _gl.GetUniformLocation(_progPresent24, "uSize");
+        _gl.UseProgram(_progPresent24);
+        _gl.Uniform1(_gl.GetUniformLocation(_progPresent24, "uVram"), 0);
+        _gl.Uniform1(_gl.GetUniformLocation(_progPresent24, "uScale"), GlVram.Scale);
 
         _vao = _gl.GenVertexArray();
         _vbo = _gl.GenBuffer();
@@ -173,12 +188,12 @@ public sealed class GlBackend : IGpuBackend
     public void CopyVram(int sx, int sy, int dx, int dy, int w, int h) { Flush(); _vram.CopyRect(sx, sy, dx, dy, w, h); }
     public void WriteVram(int x, int y, int w, int h, ReadOnlySpan<ushort> px) { Flush(); _vram.WriteRect(x, y, w, h, px); }
     public void ReadVram(int x, int y, int w, int h, Span<ushort> px) { Flush(); _vram.ReadRect(x, y, w, h, px); }
-    
+
     public unsafe void Flush()
     {
         if (_count == 0) return;
-        _vram.SyncRead(); // readtex reflects everything drawn so far
         _vram.BindDraw();
+        _vram.Barrier();
 
         _gl.Disable(EnableCap.DepthTest);
         _gl.Disable(EnableCap.CullFace);
@@ -189,13 +204,11 @@ public sealed class GlBackend : IGpuBackend
         _gl.UseProgram(_progPrim);
         _gl.BindVertexArray(_vao);
         _gl.ActiveTexture(TextureUnit.Texture0);
-        _gl.BindTexture(TextureTarget.Texture2D, _vram.ReadTex);
-        _gl.Uniform1(_gl.GetUniformLocation(_progPrim, "uVram"), 0);
+        _gl.BindTexture(TextureTarget.Texture2D, _vram.Texture);
         _gl.Uniform4(_uTexWindow, _kTwAndX, _kTwAndY, _kTwOrX, _kTwOrY);
         _gl.Uniform1(_uSetMask, _kSetMask == 1 ? 1f : 0f);
         _gl.Uniform1(_uCheckMask, _kCheckMask);
         _gl.Uniform4(_uBlendOpaque, 1f, 1f, 1f, 0f);
-        _gl.Uniform1(_uScale, GlVram.Scale);
 
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
         _gl.BufferSubData<GlVertex>(BufferTargetARB.ArrayBuffer, 0, _verts.AsSpan(0, _count));
@@ -215,6 +228,7 @@ public sealed class GlBackend : IGpuBackend
                 SetBlend(0f, 1f);
                 _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
 
+                _vram.Barrier();
                 _gl.BlendEquationSeparate(BlendEquationModeEXT.FuncReverseSubtract, BlendEquationModeEXT.FuncAdd);
                 SetBlend(1f, 1f);
                 _gl.Uniform4(_uBlendOpaque, 0f, 0f, 0f, 1f);
@@ -229,19 +243,18 @@ public sealed class GlBackend : IGpuBackend
         }
 
         _gl.Disable(EnableCap.ScissorTest);
-        _vram.MarkDrawn();
         _count = 0;
     }
 
     void SetBlend(float src, float dst) => _gl.Uniform4(_uBlend, src, src, src, dst);
-    
+
     public void Present(in HleDispEnv disp) => PresentDisplay(disp.X, disp.Y, disp.W, disp.H, disp.Rgb24);
 
     public unsafe (uint tex, int w, int h) PresentDisplay(int dispX, int dispY, int w, int h, bool rgb24 = false, int outW = 0, int outH = 0)
     {
         if (!Ready || w <= 0 || h <= 0) return (0, 0, 0);
-        Flush(); 
-        
+        Flush();
+
         int fbW = w * GlVram.Scale;
         int fbH = h * GlVram.Scale;
         EnsurePresentSize(fbW, fbH);
@@ -253,15 +266,12 @@ public sealed class GlBackend : IGpuBackend
         _gl.Disable(EnableCap.ScissorTest);
         _gl.Disable(EnableCap.CullFace);
 
-        uint prog = rgb24 ? _progPresent24 : _progPresent;
-        _gl.UseProgram(prog);
+        _gl.UseProgram(rgb24 ? _progPresent24 : _progPresent);
         _gl.BindVertexArray(_presentVao);
         _gl.ActiveTexture(TextureUnit.Texture0);
-        _gl.BindTexture(TextureTarget.Texture2D, _vram.DrawTex);
-        _gl.Uniform1(_gl.GetUniformLocation(prog, "uVram"), 0);
-        if (rgb24) _gl.Uniform1(_gl.GetUniformLocation(prog, "uScale"), GlVram.Scale);
-        _gl.Uniform2(_gl.GetUniformLocation(prog, "uOrigin"), (float)dispX, dispY);
-        _gl.Uniform2(_gl.GetUniformLocation(prog, "uSize"), (float)w, h);
+        _gl.BindTexture(TextureTarget.Texture2D, _vram.Texture);
+        _gl.Uniform2(rgb24 ? _uPresent24Origin : _uPresentOrigin, (float)dispX, dispY);
+        _gl.Uniform2(rgb24 ? _uPresent24Size : _uPresentSize, (float)w, h);
         _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
 
         _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);

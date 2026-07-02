@@ -327,15 +327,24 @@ public static class OverlayWriter
     static void ApplyPatches(List<MipsFunction> funcs, Config.PatchEntry[] patches)
     {
         if (patches.Length == 0) return;
-        var byAddr = patches.ToDictionary(p => Convert.ToUInt32(p.Address, 16), p => p.Name);
         int applied = 0;
-        foreach (var func in funcs)
-            if (byAddr.TryGetValue(func.Start, out var target))
+        foreach (var patch in patches)
+        {
+            uint? addr = string.IsNullOrEmpty(patch.Address) ? null : Convert.ToUInt32(patch.Address, 16);
+            int matched = 0;
+            foreach (var func in funcs)
             {
+                if (!string.IsNullOrEmpty(patch.Overlay) && !string.Equals(func.OverlayName, patch.Overlay, StringComparison.OrdinalIgnoreCase)) continue;
+                bool hit = addr.HasValue ? func.Start == addr.Value : string.Equals(func.Name, patch.Function, StringComparison.Ordinal);
+                if (!hit) continue;
                 func.IsPatch = true;
-                func.PatchTarget = target;
+                func.PatchTarget = patch.Target;
+                matched++;
                 applied++;
             }
+            if (matched == 0)
+                Console.WriteLine($"[Recompiler] WARNING: patch '{patch.Target}' matched nothing (overlay='{patch.Overlay}' function='{patch.Function}' address='{patch.Address}')");
+        }
         Console.WriteLine($"[Recompiler] applied {applied} patches");
     }
 
